@@ -10,11 +10,11 @@ FastAPI + Vue 3 全栈实现，覆盖需求文档第一阶段的四大模块：
 
 | 学生管理 | 信息汇总 |
 |---|---|
-| ![学生管理](docs/screenshots/01_学生管理.png) | ![信息汇总](docs/screenshots/02_信息汇总.png) |
+| ![学生管理](docs/screenshots/01_%E5%AD%A6%E7%94%9F%E7%AE%A1%E7%90%86.png) | ![信息汇总](docs/screenshots/02_%E4%BF%A1%E6%81%AF%E6%B1%87%E6%80%BB.png) |
 | 人脸录入 | 脸库审计（ML） |
-| ![人脸录入](docs/screenshots/04_人脸录入.png) | ![脸库审计](docs/screenshots/03_脸库审计.png) |
+| ![人脸录入](docs/screenshots/04_%E4%BA%BA%E8%84%B8%E5%BD%95%E5%85%A5.png) | ![脸库审计](docs/screenshots/03_%E8%84%B8%E5%BA%93%E5%AE%A1%E8%AE%A1.png) |
 
-![公告管理](docs/screenshots/05_公告管理.png)
+![公告管理](docs/screenshots/05_%E5%85%AC%E5%91%8A%E7%AE%A1%E7%90%86.png)
 
 ## 项目亮点（三条）
 
