@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学生刷脸考勤系统 - 知识点练习</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: #f5f5f7; color: #1d1d1f; line-height: 1.6; padding: 24px;
+}
+.container { max-width: 820px; margin: 0 auto; }
+h1 { font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+.subtitle { color: #6e6e73; font-size: 14px; margin-bottom: 24px; }
+.progress-bar {
+  background: #e0e0e3; height: 6px; border-radius: 3px; margin-bottom: 24px; overflow: hidden;
+}
+.progress-fill { background: #534AB7; height: 100%; border-radius: 3px; transition: width 0.3s; }
+.question-card {
+  background: #fff; border-radius: 12px; padding: 28px; margin-bottom: 16px;
+  border: 1px solid #e0e0e3;
+}
+.q-tag {
+  display: inline-block; font-size: 12px; padding: 2px 10px; border-radius: 6px;
+  margin-bottom: 12px; font-weight: 500;
+}
+.tag-choice { background: #EEEDFE; color: #534AB7; }
+.tag-short { background: #E6F1FB; color: #185FA5; }
+.tag-design { background: #FAEEDA; color: #854F0B; }
+.tag-easy { background: #E1F5EE; color: #0F6E56; }
+.tag-medium { background: #FAEEDA; color: #854F0B; }
+.tag-hard { background: #FAECE7; color: #993C1D; }
+.q-title { font-size: 16px; font-weight: 500; margin-bottom: 16px; }
+.options { display: flex; flex-direction: column; gap: 10px; }
+.option {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px;
+  border: 1.5px solid #e0e0e3; border-radius: 8px; cursor: pointer;
+  transition: all 0.15s; font-size: 14px;
+}
+.option:hover { border-color: #534AB7; background: #f8f7ff; }
+.option.selected { border-color: #534AB7; background: #EEEDFE; }
+.option.correct { border-color: #0F6E56; background: #E1F5EE; }
+.option.wrong { border-color: #A32D2D; background: #FAECE7; }
+.option-letter {
+  width: 24px; height: 24px; border-radius: 50%; background: #f0f0f3;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; flex-shrink: 0; color: #6e6e73;
+}
+.option.correct .option-letter { background: #0F6E56; color: #fff; }
+.option.wrong .option-letter { background: #A32D2D; color: #fff; }
+.option-text { flex: 1; }
+.short-input {
+  width: 100%; min-height: 80px; padding: 12px; border: 1.5px solid #e0e0e3;
+  border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical;
+  outline: none; transition: border-color 0.15s;
+}
+.short-input:focus { border-color: #534AB7; }
+.actions { display: flex; gap: 12px; margin-top: 16px; }
+.btn {
+  padding: 8px 20px; border-radius: 8px; border: 1.5px solid #534AB7;
+  background: #534AB7; color: #fff; font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: all 0.15s;
+}
+.btn:hover { background: #3C3489; }
+.btn-outline { background: transparent; color: #534AB7; }
+.btn-outline:hover { background: #EEEDFE; }
+.explanation {
+  margin-top: 16px; padding: 16px; border-radius: 8px; font-size: 13px;
+  line-height: 1.7; display: none;
+}
+.explanation.show { display: block; }
+.explanation.correct-answer { background: #E1F5EE; border: 1px solid #9FE1CB; }
+.explanation.wrong-answer { background: #FAECE7; border: 1px solid #F5C4B3; }
+.explanation strong { font-weight: 600; }
+.score-display {
+  text-align: center; padding: 40px; background: #fff; border-radius: 12px;
+  border: 1px solid #e0e0e3; display: none;
+}
+.score-display.show { display: block; }
+.score-num { font-size: 48px; font-weight: 700; color: #534AB7; }
+.score-text { color: #6e6e73; font-size: 14px; margin-top: 8px; }
+.nav { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+.nav-info { font-size: 13px; color: #6e6e73; }
+.reference {
+  margin-top: 24px; padding: 20px; background: #fff; border-radius: 12px;
+  border: 1px solid #e0e0e3;
+}
+.reference h3 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+.reference-list { font-size: 13px; color: #6e6e73; line-height: 1.8; }
+.reference-list a { color: #534AB7; text-decoration: none; }
+.reference-list a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>学生刷脸考勤系统 - 知识点考核</h1>
+  <p class="subtitle">8道选择 + 4道简答 + 2道设计题，覆盖6大核心知识点</p>
+  <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  <div id="quizContent"></div>
+  <div class="nav" id="navBar" style="display:none">
+    <button class="btn btn-outline" id="prevBtn">上一题</button>
+    <span class="nav-info" id="navInfo"></span>
+    <button class="btn" id="nextBtn">下一题</button>
+  </div>
+  <div class="score-display" id="scoreDisplay">
+    <div class="score-num" id="scoreNum">0</div>
+    <div class="score-text" id="scoreText"></div>
+    <button class="btn" style="margin-top:20px" onclick="location.reload()">重新答题</button>
+  </div>
+  <div class="reference">
+    <h3>知识点速查</h3>
+    <div class="reference-list">
+      1. 三层架构: Controller(api) -> Service -> Repository -> Storage, 严格单向<br>
+      2. 人脸管线: 摄像头 -> insightface检测 -> 5点关键点 -> 512维ArcFace嵌入 -> 三处存储<br>
+      3. 余弦相似度: cos(A,B)=A.B/(|A|x|B|), 对光照缩放免疫, 范围[-1,1]<br>
+      4. HNSW: 多层图跳跃, O(N)->O(logN), Milvus自动维护<br>
+      5. 聚类审计: 同号<0.6=脏数据, 异号>0.85=重复注册<br>
+      6. WebSocket: 持久双向, 心跳ping/pong, 断线重连+HTTP补拉<br>
+      7. 级联删除: SQLite CASCADE + Milvus手动删 + 磁盘手动删, Service层编排<br>
+      8. CSV枚举: 数据与代码分离, 改CSV重启即生效
+    </div>
+  </div>
+</div>
+
+<script>
+const questions = [
+  {
+    type: "choice", difficulty: "easy", tag: "三层架构",
+    title: "Controller 层直接调用 Repository 层查询数据库，这种做法是否正确？",
+    options: [
+      "正确，减少中间层调用更高效",
+      "错误，违反依赖单向原则，Controller 只能调 Service",
+      "正确，Repository 本来就是给 Controller 用的",
+      "错误，应该用 Repository 调 Service 再返回 Controller"
+    ],
+    answer: 1,
+    explanation: "三层架构的铁律是依赖严格单向: Controller -> Service -> Repository。Controller 跳过 Service 直接读库，会导致业务逻辑散落到控制层，破坏关注点分离。如果换数据库，Controller 也要跟着改。"
+  },
+  {
+    type: "choice", difficulty: "easy", tag: "人脸管线",
+    title: "insightface buffalo_l 提取的人脸嵌入向量是多少维？",
+    options: ["128 维", "256 维", "512 维", "1024 维"],
+    answer: 2,
+    explanation: "ArcFace 模型输出 512 维浮点向量。维数越高表达能力越强，但计算和存储成本也越高。512 维是精度和性能的平衡点，也是工业界人脸识别的主流选择。"
+  },
+  {
+    type: "choice", difficulty: "medium", tag: "向量检索",
+    title: "为什么选择余弦相似度而不是欧氏距离做人脸比对？",
+    options: [
+      "余弦相似度计算更快",
+      "余弦相似度对向量缩放（光照变化）免疫",
+      "欧氏距离不能用于高维向量",
+      "余弦相似度精度更高"
+    ],
+    answer: 1,
+    explanation: "同一张脸在不同光照下，提取的向量整体会被缩放（亮度高 = 向量值整体偏大）。欧氏距离会把这个缩放算成'很远'，但余弦只关心方向不关心长度，所以对光照变化免疫。公式: cos(A,B) = (A.B) / (|A| x |B|)。"
+  },
+  {
+    type: "choice", difficulty: "medium", tag: "HNSW索引",
+    title: "HNSW 索引相比朴素搜索的时间复杂度优势体现在？",
+    options: [
+      "从 O(N) 降到 O(1)",
+      "从 O(N) 降到 O(log N)",
+      "从 O(N^2) 降到 O(N)",
+      "从 O(N^2) 降到 O(log N)"
+    ],
+    answer: 1,
+    explanation: "朴素搜索逐个比较 N 个向量，复杂度 O(N)。HNSW (Hierarchical Navigable Small World) 构建多层图结构，检索时先在顶层粗跳再逐层细化，复杂度 O(log N)。100 人时差距不大，1 万人时天壤之别。"
+  },
+  {
+    type: "choice", difficulty: "easy", tag: "WebSocket",
+    title: "HTTP 和 WebSocket 的核心区别是？",
+    options: [
+      "WebSocket 加密，HTTP 不加密",
+      "WebSocket 是持久双向连接，HTTP 是请求-响应",
+      "WebSocket 比 HTTP 传输速度快",
+      "WebSocket 只能传 JSON 数据"
+    ],
+    answer: 1,
+    explanation: "HTTP 是'一问一答': 客户端发请求，服务端回响应，连接就断了。WebSocket 建立后保持连接不断开，服务端可以随时主动推消息给客户端。公告实时推送必须用 WebSocket，因为发布公告时需要主动通知所有在线用户。HTTPS 也是加密的，所以加密不是区别。"
+  },
+  {
+    type: "choice", difficulty: "medium", tag: "级联删除",
+    title: "删除学生时，Milvus 中的向量需要怎么处理？",
+    options: [
+      "不用管，Milvus 会自动级联删除",
+      "设置 TTL 让向量自动过期",
+      "Service 层按 face_id 手动删除",
+      "删除并重建整个 Milvus 集合"
+    ],
+    answer: 2,
+    explanation: "SQLite 有外键 ON DELETE CASCADE 可以自动级联，但 Milvus 是向量数据库，没有外键概念。必须在 Service 层查出该学生所有 faces 记录的 face_id，然后逐个调 Milvus 的 delete 接口。这就是级联删除必须放 Service 层的原因——要编排三个不同数据源的删除操作。"
+  },
+  {
+    type: "choice", difficulty: "hard", tag: "ML聚类",
+    title: "两个不同学号的人脸向量余弦相似度 > 0.85，最可能说明什么？",
+    options: [
+      "正常现象，同一专业的人长得像",
+      "脸库脏了，录错人了",
+      "疑似一人多号，重复注册",
+      "模型精度不够需要换模型"
+    ],
+    answer: 2,
+    explanation: "不同学号但相似度 > 0.85，说明两个学号指向的是同一个人的脸——疑似一人多号重复注册。如果是'同号两张脸相似度 < 0.6'才是脸库脏了（录错人）。0.85 阈值可根据实际数据调整。注意：这不是模型精度问题，ArcFace 的精度足够区分不同人。"
+  },
+  {
+    type: "choice", difficulty: "easy", tag: "CSV枚举",
+    title: "专业/班级用 CSV 驱动而非代码硬编码的好处是？",
+    options: [
+      "运行速度更快",
+      "数据与代码分离，新增枚举不用改代码",
+      "减少数据库查询压力",
+      "前端可以直接读 CSV 文件"
+    ],
+    answer: 1,
+    explanation: "CSV 驱动 = 数据与代码分离。新增一个班级不需要修改 Python 代码、不需要重新打包发布，只需要在 data/班级.csv 加一行然后重启程序。这是配置外置化的经典实践。前端不直接读 CSV，而是通过 GET /api/enums 接口拿后端已经加载好的枚举值。"
+  },
+  {
+    type: "short", difficulty: "medium", tag: "数据模型",
+    title: "解释 face_id 在系统中的'桥梁'作用，它连接了哪两个存储？为什么需要这个桥梁？",
+    modelAnswer: "face_id 是 SQLite faces 表的唯一字段，同时也是 Milvus face_vectors 集合的主键。它桥接了 SQLite（存学生信息和脸照元数据）和 Milvus（存人脸向量）两个异构存储。需要这个桥梁是因为 Milvus 只存向量不存关系型数据，无法做 JOIN 查询；SQLite 不适合存向量也不支持相似度检索。通过 face_id，查询学生的脸照向量时可以先从 SQLite 查出 face_id 列表，再去 Milvus 按主键拉对应向量。",
+    keywords: ["face_id", "桥", "SQLite", "Milvus", "主键", "关联", "JOIN", "向量", "元数据"]
+  },
+  {
+    type: "short", difficulty: "medium", tag: "存储设计",
+    title: "为什么人脸图片不直接存在 SQLite 数据库里（BLOB），而是存文件系统？",
+    modelAnswer: "三个原因: (1) 数据库存图片会让库文件膨胀极快，SQLite 是单文件数据库，几万张图片就能让文件大到几个 G，备份和迁移极慢。(2) 图片读取不经过 SQL 查询，走文件系统 IO 更快，还能用 nginx 做静态资源服务。(3) Milvus 存的是向量不是图片，图片本身不参与相似度检索，所以存文件系统最合适。SQLite 只存 image_path 这个路径字符串作为元数据引用。",
+    keywords: ["膨胀", "BLOB", "文件系统", "路径", "元数据", "image_path", "单文件", "IO"]
+  },
+  {
+    type: "short", difficulty: "medium", tag: "人脸管线",
+    title: "质量把关策略'只取最大脸'，背后的逻辑是什么？如果一张照片里有三个人，会怎么处理？",
+    modelAnswer: "只取面积最大的脸是因为: 在录入场景下，录入者本人通常离摄像头最近，所以在画面中面积最大。如果一张照片检测到三张脸，系统会取面积最大的那张（最可能是录入者本人），忽略其余两张。如果面积最大的脸质量仍然不合格（太模糊、侧脸角度过大），直接拒收并提示重新拍照。这个策略避免了将背景中其他人的脸误存入该学生的脸库。",
+    keywords: ["面积最大", "离摄像头近", "录入者", "拒收", "重新拍照", "背景", "误存"]
+  },
+  {
+    type: "short", difficulty: "hard", tag: "WebSocket",
+    title: "描述公告从发布到前端展示的完整链路（包括 WebSocket 推送和断线重连后的 HTTP 补拉）。",
+    modelAnswer: "正常流程: (1) 前端通过 WebSocket 连接 /ws/notices，后端将其加入连接池。(2) 某用户通过 POST /api/notices 发布公告。(3) 后端将公告落库 SQLite。(4) 落库成功后，后端遍历 WebSocket 连接池，向所有在线客户端广播 {type:'notice', data:公告对象}。(5) 前端收到后亮铃铛红点 + 弹 el-notification。断线重连流程: 如果 WebSocket 断开，前端自动重连。重连成功后，前端通过 HTTP GET /api/notices 补拉断线期间错过的公告。心跳机制: 服务端定时发 {type:'ping'}，客户端回 {type:'pong'} 维持连接活跃，防止代理/防火墙切断空闲连接。",
+    keywords: ["WebSocket", "连接池", "POST", "落库", "广播", "红点", "弹窗", "断线", "重连", "补拉", "GET", "心跳", "ping", "pong"]
+  },
+  {
+    type: "design", difficulty: "hard", tag: "ML实践",
+    title: "如果第二阶段要加'代刷预警'功能（刷脸时实时发现跨学号高相似），请设计数据流和涉及的三层架构落点。",
+    modelAnswer: "数据流: (1) 学生刷脸 -> 摄像头拍照 -> YOLO 检测人脸区域 -> insightface 提取 512 维向量。(2) 将该向量送入 Milvus 做 top-K 相似度检索 (K=5)，返回最相似的 K 条记录及其 student_id 和相似度分数。(3) 如果返回的最高相似度记录的 student_id 与当前刷卡者学号不同，且相似度 > 0.85，触发代刷预警。三层落点: Repository 层 face_repo.py 新增 search_similar(embedding, top_k) 方法调 Milvus 的 search 接口。Service 层新增 attendance_service.py 的 check_proxy_warning(embedding, expected_student_id) 方法，编排检索 + 比对 + 生成预警记录。Controller 层 api/attendance.py 新增 POST /api/attendance/check 接口，接收拍照图片，返回检测结果和预警标记。与第一阶段的区别: 第一阶段聚类是离线批量分析，代刷预警是实时单次检索，都要复用 Milvus 向量库但调用方式不同。",
+    keywords: ["YOLO", "insightface", "512", "Milvus", "search", "top-K", "student_id", "0.85", "Repository", "Service", "Controller", "face_repo", "attendance", "实时", "离线", "批量"]
+  },
+  {
+    type: "design", difficulty: "hard", tag: "级联删除",
+    title: "如果某次删除学生操作中，SQLite 和磁盘文件删除成功了，但 Milvus 向量删除失败（网络超时），系统会出现什么问题？如何检测和修复？",
+    modelAnswer: "问题: 产生'孤儿向量'——Milvus 中存在向量但 SQLite 中已无对应的 face 记录和学生记录。后果是第二阶段做相似度检索时可能命中这些孤儿向量，但无法关联到任何学生。检测: 可以写一个定期审计任务，遍历 Milvus 全部记录的 face_id，检查每个 face_id 是否在 SQLite faces 表中存在，不存在则为孤儿。修复方案: (1) 在 Service 层删除时增加重试机制，Milvus 删除失败自动重试 3 次。(2) 如果重试仍失败，将失败的 face_id 列表写入一张'待清理队列表' (cleanup_queue)，后台定时任务扫描这张表，对每个待清理的 face_id 重试 Milvus 删除。(3) 也可以在第一阶段的脸库审计接口中增加'孤儿向量检测'功能，返回所有 Milvus 有但 SQLite 没有的 face_id 列表，手动或自动清理。",
+    keywords: ["孤儿向量", "不一致", "重试", "队列表", "cleanup", "审计", "定期", "face_id", "SQLite", "Milvus"]
+  }
+];
+
+let currentIdx = 0;
+let answers = new Array(questions.length).fill(null);
+let checked = new Array(questions.length).fill(false);
+
+function renderQuestion(idx) {
+  const q = questions[idx];
+  const container = document.getElementById('quizContent');
+  let html = `<div class="question-card" id="qCard">`;
+  html += `<span class="q-tag tag-${q.type}">${q.tag}</span> `;
+  html += `<span class="q-tag tag-${q.difficulty}">${q.difficulty === 'easy' ? '基础' : q.difficulty === 'medium' ? '进阶' : '挑战'}</span>`;
+  html += `<div class="q-title">第 ${idx + 1} 题: ${q.title}</div>`;
+
+  if (q.type === 'choice') {
+    html += `<div class="options">`;
+    q.options.forEach((opt, i) => {
+      const cls = answers[idx] === i ? 'selected' : '';
+      html += `<div class="option ${cls}" data-idx="${i}" onclick="selectOption(${i})">`;
+      html += `<div class="option-letter">${String.fromCharCode(65 + i)}</div>`;
+      html += `<div class="option-text">${opt}</div>`;
+      html += `</div>`;
+    });
+    html += `</div>`;
+  } else if (q.type === 'short' || q.type === 'design') {
+    html += `<textarea class="short-input" placeholder="在此输入你的答案..." id="shortInput">${answers[idx] || ''}</textarea>`;
+  }
+
+  html += `<div class="actions">`;
+  if (q.type === 'choice') {
+    html += `<button class="btn" onclick="checkAnswer()">提交答案</button>`;
+  } else {
+    html += `<button class="btn" onclick="checkShortAnswer()">查看参考答案</button>`;
+  }
+  html += `</div>`;
+
+  html += `<div class="explanation" id="explanation"></div>`;
+  html += `</div>`;
+
+  container.innerHTML = html;
+
+  document.getElementById('navInfo').textContent = `第 ${idx + 1} / ${questions.length} 题`;
+  document.getElementById('navBar').style.display = 'flex';
+  document.getElementById('prevBtn').style.display = idx > 0 ? 'block' : 'none';
+  document.getElementById('nextBtn').textContent = idx === questions.length - 1 ? '查看成绩' : '下一题';
+
+  updateProgress();
+}
+
+function selectOption(i) {
+  if (checked[currentIdx]) return;
+  answers[currentIdx] = i;
+  document.querySelectorAll('.option').forEach(el => el.classList.remove('selected'));
+  document.querySelector(`.option[data-idx="${i}"]`).classList.add('selected');
+}
+
+function checkAnswer() {
+  if (answers[currentIdx] === null) {
+    alert('请先选择一个答案');
+    return;
+  }
+  checked[currentIdx] = true;
+  const q = questions[currentIdx];
+  const correct = answers[currentIdx] === q.answer;
+  const exp = document.getElementById('explanation');
+  exp.className = 'explanation show ' + (correct ? 'correct-answer' : 'wrong-answer');
+
+  document.querySelectorAll('.option').forEach((el, i) => {
+    el.classList.remove('selected');
+    if (i === q.answer) el.classList.add('correct');
+    if (i === answers[currentIdx] && i !== q.answer) el.classList.add('wrong');
+  });
+
+  exp.innerHTML = correct
+    ? `<strong>回答正确</strong><br>${q.explanation}`
+    : `<strong>回答错误</strong> 正确答案是 <strong>${String.fromCharCode(65 + q.answer)}</strong><br>${q.explanation}`;
+
+  updateProgress();
+}
+
+function checkShortAnswer() {
+  const input = document.getElementById('shortInput');
+  answers[currentIdx] = input.value;
+  checked[currentIdx] = true;
+
+  const q = questions[currentIdx];
+  const exp = document.getElementById('explanation');
+  exp.className = 'explanation show correct-answer';
+
+  let keywordHits = [];
+  if (q.keywords) {
+    q.keywords.forEach(kw => {
+      if (input.value.includes(kw)) keywordHits.push(kw);
+    });
+  }
+  const hitRate = q.keywords ? Math.round(keywordHits.length / q.keywords.length * 100) : 0;
+
+  exp.innerHTML = `<strong>参考答案</strong><br>${q.modelAnswer}`;
+  if (q.keywords) {
+    exp.innerHTML += `<br><br><strong>关键词命中: ${hitRate}%</strong> (${keywordHits.length}/${q.keywords.length})`;
+    exp.innerHTML += `<br>命中: ${keywordHits.join(', ') || '无'}`;
+    exp.innerHTML += `<br>未命中: ${q.keywords.filter(k => !keywordHits.includes(k)).join(', ') || '无'}`;
+  }
+}
+
+function updateProgress() {
+  const answered = checked.filter(c => c).length;
+  const pct = (answered / questions.length) * 100;
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+
+document.getElementById('prevBtn').onclick = () => {
+  if (currentIdx > 0) {
+    if (questions[currentIdx].type === 'short' || questions[currentIdx].type === 'design') {
+      const input = document.getElementById('shortInput');
+      if (input) answers[currentIdx] = input.value;
+    }
+    currentIdx--;
+    renderQuestion(currentIdx);
+  }
+};
+
+document.getElementById('nextBtn').onclick = () => {
+  if (questions[currentIdx].type === 'short' || questions[currentIdx].type === 'design') {
+    const input = document.getElementById('shortInput');
+    if (input) answers[currentIdx] = input.value;
+  }
+  if (currentIdx < questions.length - 1) {
+    currentIdx++;
+    renderQuestion(currentIdx);
+  } else {
+    showScore();
+  }
+};
+
+function showScore() {
+  let score = 0;
+  let total = 0;
+  questions.forEach((q, i) => {
+    if (q.type === 'choice' && checked[i]) {
+      total++;
+      if (answers[i] === q.answer) score++;
+    }
+  });
+  const totalChoice = questions.filter(q => q.type === 'choice').length;
+  const display = document.getElementById('scoreDisplay');
+  document.getElementById('quizContent').style.display = 'none';
+  document.getElementById('navBar').style.display = 'none';
+  display.classList.add('show');
+  document.getElementById('scoreNum').textContent = `${score}/${totalChoice}`;
+  let text = '';
+  const rate = score / totalChoice;
+  if (rate === 1) text = '满分! 知识点全部掌握, 可以开始实现了';
+  else if (rate >= 0.75) text = '掌握良好, 个别知识点需要回看解析';
+  else if (rate >= 0.5) text = '基本掌握, 建议重新阅读知识点讲解后再实现';
+  else text = '需要加强理解, 建议重新学习知识点后再开始实现';
+  document.getElementById('scoreText').textContent = text;
+}
+
+renderQuestion(0);
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# ===== Node =====
+node_modules/
+dist/
+.vite/
+*.local
+
+# ===== 本项目运行时产物 =====
+backend/attendance.db
+backend/milvus_lite.db/
+backend/milvus_data/
+backend/uploads/faces/
+backend/storage/faces/
+
+# ===== 本地备份 / 临时目录 =====
+_backup_*/
+*_backup_*/
+tmp/
+temp/
+
+# ===== 编辑器 / 系统 =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

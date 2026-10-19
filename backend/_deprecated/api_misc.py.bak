@@ -1,0 +1,79 @@
+"""公告管理接口（含 WebSocket 端点）+ 枚举/系统状态等杂项接口"""
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from sqlalchemy.orm import Session
+
+from api.deps import db_session
+from core.enums import enums
+from core.face_engine import engine
+from core.milvus import get_vector_store
+from core.response import ok
+from core.ws_manager import manager
+from schemas.notice import NoticeCreate, NoticeUpdate
+from service.notice_service import NoticeService
+
+router = APIRouter(tags=["公告与系统"])
+Db = Annotated[Session, Depends(db_session)]
+
+
+# ---------------- 公告 CRUD ----------------
+@router.get("/api/notices")
+def list_notices(db: Db, page: int = 1, page_size: int = 20):
+    return ok(NoticeService.list(db, page, page_size))
+
+
+@router.get("/api/notices/{notice_id}")
+def get_notice(notice_id: int, db: Db):
+    return ok(NoticeService.get(db, notice_id))
+
+
+@router.post("/api/notices")
+async def create_notice(payload: NoticeCreate, db: Db):
+    data = await NoticeService.create(db, payload)
+    return ok(data, message="发布成功并已实时推送")
+
+
+@router.put("/api/notices/{notice_id}")
+def update_notice(notice_id: int, payload: NoticeUpdate, db: Db):
+    return ok(NoticeService.update(db, notice_id, payload), message="更新成功")
+
+
+@router.delete("/api/notices/{notice_id}")
+def delete_notice(notice_id: int, db: Db):
+    return ok(NoticeService.delete(db, notice_id), message="删除成功")
+
+
+# ---------------- WebSocket ----------------
+@router.websocket("/ws/notices")
+async def notices_ws(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            if raw == "ping" or '"ping"' in raw:
+                await websocket.send_text('{"type":"pong"}')
+    except WebSocketDisconnect:
+        await manager.disconnect(websocket)
+    except Exception:  # noqa: BLE001
+        await manager.disconnect(websocket)
+
+
+# ---------------- 杂项 ----------------
+@router.get("/api/enums")
+def get_enums():
+    return ok(enums.as_dict())
+
+
+@router.get("/api/system/status")
+def system_status():
+    store = get_vector_store()
+    return ok({
+        "app": "学生刷脸考勤系统 · 第一阶段",
+        "vector_backend": store.backend,
+        "vector_count": store.count(),
+        "face_engine": engine.status,
+        "ws_online": manager.online,
+    })
