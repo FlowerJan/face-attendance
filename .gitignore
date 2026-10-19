@@ -19,6 +19,9 @@ backend/milvus_data/
 backend/uploads/faces/
 backend/storage/faces/
 
+# ===== 评测用的独立库（audit_recall_test.py 生成，可随时重建） =====
+backend/.eval/
+
 # ===== 本地备份 / 临时目录 =====
 _backup_*/
 *_backup_*/
