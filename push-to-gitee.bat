@@ -8,33 +8,22 @@ echo ============================================
 echo  face-attendance  ->  Gitee push helper
 echo ============================================
 echo.
-
-set /p GITNAME=1) Your commit author name   [e.g. FlowerJan10]:
-set /p GITMAIL=2) Your Gitee verified email [must match Gitee profile]:
-set /p REPONAME=3) Target repo name         [default: face-attendance]:
-
-if "%GITNAME%"=="" set GITNAME=FlowerJan10
-if "%REPONAME%"=="" set REPONAME=face-attendance
-
+echo [提示] 本脚本已改为安全模式：只做 push，绝不改写 commit 历史。
 echo.
-echo [1/4] setting local git identity
-git config user.name "%GITNAME%"
-git config user.email "%GITMAIL%"
-
-echo [2/4] fixing the author of the first commit
-git commit --amend --reset-author --no-edit
-
-echo [3/4] setting remote
-git remote remove origin 2>nul
-git remote add origin https://gitee.com/flowerjan10/%REPONAME%.git
-
-echo [4/4] pushing (you will be asked for Gitee username + password/personal access token)
-git branch -M master
-git push -u origin master
-
+echo   旧版本会对 HEAD 执行 git commit --amend --reset-author，
+echo   也就是重写"最新提交"的作者信息（并非注释里写的首个提交）。
+echo   一旦最新提交已经推送，重写它会改变线上历史，
+echo   并且让 Gitee 贡献图（绿点）的归属日期发生偏移。
 echo.
-echo --- current head ---
-git log --format="%%h  %%an <%%ae>  %%s" -n 1
+echo   实际推送请使用同目录下的 push-to-gitee-safe.bat
 echo.
-echo Done. Open https://gitee.com/flowerjan10/%REPONAME% to verify.
-pause
+echo.
+
+if not exist "push-to-gitee-safe.bat" (
+    echo [ERROR] 找不到 push-to-gitee-safe.bat，无法继续。
+    pause
+    exit /b 1
+)
+
+call "push-to-gitee-safe.bat"
+exit /b %errorlevel%
