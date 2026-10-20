@@ -50,7 +50,10 @@ echo [5/5] pushing (enter Gitee username + personal access token)
 echo       NOTE: username is NOT your email; token is NOT your login password.
 echo       Get a token: Gitee - Settings - Personal Access Tokens - projects (write)
 echo.
-git push -u origin master
+echo   credential.helper is disabled for this push, so a stale cached token
+echo   cannot cause "403 token username invalid". Your input is used directly.
+echo.
+git -c credential.helper= push -u origin master
 if errorlevel 1 (
     echo.
     echo [FAILED] push failed. Common causes:
