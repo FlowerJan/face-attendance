@@ -92,7 +92,10 @@ face-attendance/
 │       ├── download_model.py   下载 buffalo_l（多镜像并发择优）
 │       ├── prepare_samples.py  裁切真实人脸样本（离线、零成本）
 │       ├── seed_demo.py        种子数据
-│       └── e2e_test.py         端到端联调（42 项断言）
+│       ├── e2e_test.py         端到端联调（42 项断言）
+│       ├── audit_recall_test.py 脸库审计召回率评测（独立评测库，不动演示数据）
+│       ├── daily_run_stats.py  每日真实运行取数 + SQLite/Milvus 条数一致性校验
+│       └── capture_ui.py       批量截图 README 用界面图
 │
 └── frontend/
     ├── vite.config.js         /api、/uploads、/ws 代理到 8000
