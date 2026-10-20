@@ -294,7 +294,15 @@ REM 生成演示数据（需先停后端）：40 名学生 + 真实人脸录入
 
 REM 重新生成真实人脸样本（离线，无需联网）
 .venv\Scripts\python.exe scripts\prepare_samples.py
+
+REM 每日真实运行取数（需先停后端）：出今日入库/覆盖率/审计数据，附可粘贴的记录行
+.venv\Scripts\python.exe scripts\daily_run_stats.py
 ```
+
+> `daily_run_stats.py` 是给"持续运行"用的：项目**能跑**和**在用**是两回事，
+> 简历上真正值钱的是后者，但它需要每天记数。这个脚本把取数压成一行命令，
+> 顺带校验 SQLite 与 Milvus 条数是否一致（不一致即为孤儿数据），
+> 并输出一行可直接粘进运营记录表的 markdown。
 
 `scripts/sample_faces/` 内的样本由 `prepare_samples.py` 从 insightface 自带测试图
 与本机已有图片裁切而来，**不依赖网络、不产生额外费用**。
