@@ -129,6 +129,18 @@ start-frontend.cmd
 
 然后浏览器打开 **http://localhost:5173** ；接口文档在 **http://localhost:8000/docs** 。
 
+**换机器 / 想让局域网内其他设备访问时**：
+
+```bat
+REM 后端默认只听 127.0.0.1；设置 APP_HOST 可放开监听
+set APP_HOST=0.0.0.0
+start-backend.cmd
+```
+
+> ⚠️ 放开监听前请注意：第一阶段**没有做登录鉴权**，任何能访问到该端口的人都能读写全部接口。
+> 仅在可信内网使用，或先自行补一层鉴权。
+> 前端脚本不再硬编码 node 路径，只要求 `node` 在 PATH 里；找不到会给出明确提示而不是静默失败。
+
 > ⚠️ **Milvus Lite 是单进程文件锁**：同一个 `backend/milvus_lite.db` 只能被一个进程打开。
 > 若旧后端没退干净，新进程会报 `DataDirLockedError / Open local milvus failed`。
 > 解决办法：`netstat -ano | findstr :8000` 找到 PID 后 `taskkill /F /PID <pid>`。
