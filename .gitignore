@@ -19,6 +19,11 @@ backend/milvus_data/
 backend/uploads/faces/
 backend/storage/faces/
 
+# ===== 模型权重（buffalo_l 约 600MB，可用 scripts/download_model.py 重建） =====
+backend/models/
+models/
+*.onnx
+
 # ===== 评测用的独立库（audit_recall_test.py 生成，可随时重建） =====
 backend/.eval/
 

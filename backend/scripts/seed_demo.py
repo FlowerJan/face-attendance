@@ -62,7 +62,14 @@ def make_students(db, count: int) -> list[int]:
 
 
 def enroll_from_dir(db, folder: Path, max_students: int) -> tuple[int, int, list[str]]:
-    """把目录里的照片逐张录给不同学生（一人一张），返回 (成功, 被拒, 详情)。"""
+    """把目录里的照片录给学生。
+
+    按文件名前缀分组（<身份>__<第几张>.jpg）：
+      · 同一身份的多张照片 -> 归到**同一个**学生（真实场景：一个人可能换装/换角度重拍）
+      · 不同身份           -> 分给不同学生
+    这样演示库反映的是「正常录入」状态；若要演示「一人多号」异常，
+    用 --split-identities 开关把同一身份故意拆到不同学号。
+    """
     files = sorted(p for p in folder.rglob("*") if p.suffix.lower() in IMG_EXT)
     if not files:
         return 0, 0, []
@@ -85,6 +92,43 @@ def enroll_from_dir(db, folder: Path, max_students: int) -> tuple[int, int, list
             fail_count += 1
             details.append(f"  {student_no} x  {path.name} ({data.get('reason') or result.get('message')})")
     return ok_count, fail_count, details
+
+
+def enroll_grouped(db, folder: Path, max_students: int) -> tuple[int, int, list[str]]:
+    """按身份分组录入：同一身份的所有照片录给同一个学生。
+
+    文件名约定 <身份>__<序号>.jpg，前缀相同即视为同一人。
+    """
+    files = sorted(p for p in folder.rglob("*") if p.suffix.lower() in IMG_EXT)
+    if not files:
+        return 0, 0, []
+
+    groups: dict[str, list[Path]] = {}
+    for p in files:
+        ident = p.stem.split("__")[0] if "__" in p.stem else p.stem
+        groups.setdefault(ident, []).append(p)
+
+    rows = db.execute(__import__("sqlalchemy").text(
+        "select id, student_no from students where face_status = 0 order by id limit :n"
+    ), {"n": max_students}).all()
+    if not rows:
+        return 0, 0, []
+
+    ok_count = fail_count = 0
+    details: list[str] = []
+    for (ident, paths), (sid, student_no) in zip(sorted(groups.items()), rows):
+        for path in paths:
+            result = face_service.enroll_face(db, sid, path.read_bytes())
+            data = result.get("data") or {}
+            if data.get("detected"):
+                ok_count += 1
+                details.append(f"  {student_no} <- {ident}/{path.name}")
+            else:
+                fail_count += 1
+                details.append(f"  {student_no} x  {ident}/{path.name} "
+                               f"({data.get('reason') or result.get('message')})")
+    return ok_count, fail_count, details
+
 
 
 def drop_all() -> None:
@@ -112,6 +156,8 @@ def main() -> int:
     parser.add_argument("--faces-from", type=str, default=None, help="用指定目录的真实照片录入")
     parser.add_argument("--max-enroll", type=int, default=20, help="最多给多少名学生录入脸照")
     parser.add_argument("--drop", action="store_true", help="先清空再种数据")
+    parser.add_argument("--split-identities", action="store_true",
+                        help="把同一身份的多张照片故意拆到不同学号，用于演示「一人多号」异常")
     args = parser.parse_args()
 
     if args.drop:
@@ -145,7 +191,12 @@ def main() -> int:
                 print("[seed] 请先执行：python scripts/download_model.py")
                 return 1
 
-            ok_count, fail_count, details = enroll_from_dir(db, folder, args.max_enroll)
+            if args.split_identities:
+                ok_count, fail_count, details = enroll_from_dir(db, folder, args.max_enroll)
+                print("[seed] 录入模式：逐张分配（同一身份拆到不同学号，用于演示异常）")
+            else:
+                ok_count, fail_count, details = enroll_grouped(db, folder, args.max_enroll)
+                print("[seed] 录入模式：按身份分组（同一身份归同一学生，正常录入）")
             print(f"[seed] 真实照片录入：成功 {ok_count}，被拒 {fail_count}")
             for line in details:
                 print(line)

@@ -22,14 +22,28 @@ SITE = os.path.join(BACKEND, ".venv", "Lib", "site-packages", "insightface", "da
 PROJ = r"E:\workbuddy-projects"
 
 # (输出名, 源图路径, 取第几张脸按面积降序, 是否整体保留不裁)
+#
+# 命名约定：<身份>__<第几张>.jpg，同一前缀 = 同一个真人（用于验证重复注册检测）。
+#
+# 素材规模说明：
+#   t1.jpg 是 6 人合影，检测器稳定检出 6 张脸 —— 全部用上，得到 6 个不同身份。
+#   本机有 8 张同一男子（黑框眼镜/白 polo）的照片，取其中 6 张 —— 1 个身份、6 张照片。
+#   合计 7 个不同身份、12 张照片，足够撑起一个有说服力的演示库。
 SOURCES = [
+    # ---- 身份 alpha：本机同一人 6 张真实照片（跨学号重复注册的检测素材） ----
     ("alpha__1.jpg", os.path.join(PROJ, "同一个戴黑框眼镜_穿白色polo衫的年轻男子_在同样的现代办_2026-09-18T03-14-27.png"), 0),
     ("alpha__2.jpg", os.path.join(PROJ, "同一个戴黑框眼镜_穿白色polo衫的年轻男子_在同样的现代办_2026-09-18T03-16-22.png"), 0),
     ("alpha__3.jpg", os.path.join(PROJ, "在这张照片中_保持男子和他的姿势_表情_眼镜_衣服完全不变__2026-09-18T02-59-10.png"), 0),
+    ("alpha__4.jpg", os.path.join(PROJ, "在这张照片中_保持男子和他的姿势_表情_眼镜_衣服完全不变__2026-09-18T03-00-34.png"), 0),
+    ("alpha__5.jpg", os.path.join(PROJ, "在这张照片中_保持男子的长相_眼镜_白色polo衫完全不变__2026-09-18T03-04-11.png"), 0),
+    ("alpha__6.jpg", os.path.join(PROJ, "在这张照片中_保持男子的长相_黑框眼镜_白色polo衫完全不_2026-09-18T03-11-29.png"), 0),
+    # ---- 身份 bravo~foxtrot：t1.jpg 合影里的 6 个不同人 ----
     ("bravo__1.jpg", os.path.join(SITE, "t1.jpg"), 0),
     ("charlie__1.jpg", os.path.join(SITE, "t1.jpg"), 1),
     ("delta__1.jpg", os.path.join(SITE, "t1.jpg"), 2),
-    ("echo__1.jpg", os.path.join(SITE, "Tom_Hanks_54745.png"), 0),
+    ("echo__1.jpg", os.path.join(SITE, "t1.jpg"), 3),
+    ("foxtrot__1.jpg", os.path.join(SITE, "t1.jpg"), 4),
+    ("golf__1.jpg", os.path.join(SITE, "t1.jpg"), 5),
 ]
 
 
