@@ -285,7 +285,7 @@ scripts\start-backend.cmd
 **阈值怎么来的**：`backend/scripts/calibrate_quality.py` 可复现 ——
 拿 12 张真实人脸 + 8 类人工退化（模糊/重度模糊/过暗/过曝/远距离小脸/侧倾/并排两人/背景小脸），
 量出每项指标的分布，取「合格样本最劣值」与「退化样本最优值」之间作为阈值。
-实测结论：**12 张合格样本 0 误伤，6 类退化 12/12 全拦，背景小脸 0 误拦**。
+实测结论：**12 张合格样本 0 误伤，7 类退化（模糊/重度模糊/过暗/过曝/远距离小脸/侧倾/并排两人）12/12 全拦，背景小脸 0 误拦**。
 
 **其它适配差异**（insightface 与参考实现 YuNet 不同，不能照抄）：
 五点顺序相反（insightface 是 `[左眼,右眼,鼻尖,左嘴角,右嘴角]`，YuNet 是 `[右眼,左眼,...]`），
@@ -547,8 +547,8 @@ bash push-to-gitee-auto.sh
 
 | 作者邮箱 | 提交数 | 说明 |
 |---|---:|---|
-| `flowerjan10@users.noreply.gitee.com` | 19 | 隐私邮箱，天然属于本账号，无需验证 |
-| `2334169670@qq.com` | 2 | 已在「设置 → 多邮箱管理」完成验证 |
+| `flowerjan10@users.noreply.gitee.com` | 24 | 隐私邮箱，天然属于本账号，无需验证 |
+| 个人 QQ 邮箱（`2334****@qq.com`，已脱敏） | 2 | 早期提交，已在「设置 → 多邮箱管理」完成验证 |
 
 核验方式（无需改写任何历史）：
 
@@ -556,12 +556,16 @@ bash push-to-gitee-auto.sh
 curl -s "https://gitee.com/api/v5/repos/flowerjan10/face-attendance/contributors?access_token=<TOKEN>"
 ```
 
-返回两个邮箱的 `name` 均为 `FlowerJan10`，贡献数 19 / 2 —— 说明两个邮箱的提交
+返回两个邮箱的 `name` 均为 `FlowerJan10`，贡献数 24 / 2 —— 说明两个邮箱的提交
 **都已正确归属到本账号**，贡献图统计不受影响。
 
 > 后续新提交统一用 `flowerjan10@users.noreply.gitee.com`：既计入绿点，
 > 又不在公开仓库里暴露真实邮箱。已在 `push-to-gitee-auto.sh` 与
 > `push-to-gitee-safe.bat` 中固定。
+>
+> 早期那 2 个提交用了个人 QQ 邮箱，邮箱本身已随 commit 元数据留在
+> Gitee 侧（这是既成事实，无法在不重写历史的前提下抹掉 —— 而重写历史
+> 会打乱贡献图，所以刻意不做）。本仓库正文中不再出现完整真实邮箱。
 
 ---
 
