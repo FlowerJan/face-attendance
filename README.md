@@ -392,6 +392,21 @@ push-to-gitee-safe.bat
 **需要准备**：Gitee → 设置 → 私人令牌 → 勾选 `projects` 权限 → 生成 token。
 推送时用户名填 Gitee 账号名（不是邮箱），密码处粘贴 token（不是登录密码）。
 
+### 无人值守推送（供每日自动任务使用）
+
+```bash
+bash push-to-gitee-auto.sh
+```
+
+交互式 `git push` 在定时任务里会静默挂死等输入，因此自动化场景改用这个脚本：
+
+- 令牌从项目根目录的 `.gitee-token` 读取（**首行纯令牌文本**，该文件已被 `.gitignore` 忽略，不会入库）
+- 推送前 `fetch` 检查 behind，落后即中止（不 force push）；ahead=0 直接跳过
+- 推送后**自动恢复干净的 remote url 与 upstream**，令牌不写入 `.git/config`
+- 输出中的令牌经脱敏处理
+
+令牌轮换后只需更新 `.gitee-token` 一个文件，无需改脚本或改 git 配置。
+
 > ⚠️ **不要再用 `git commit --amend --reset-author` 来"修正作者"。**
 > Gitee 的贡献图（绿点）按 commit 的**作者邮箱 + 作者日期**统计。
 > 改写已推送提交会同时改变这两项，导致绿点错位或消失。
