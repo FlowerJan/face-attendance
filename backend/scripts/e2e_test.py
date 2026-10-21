@@ -244,6 +244,21 @@ def real_face_phase(enums: dict) -> None:
     check("统计不出现负数", int(fc.get("zero_face") or 0) >= 0,
           f"zero_face={fc.get('zero_face')}")
 
+    # total_faces 是「条数」而非「人数」——曾因误用 one+multiple 导致 HTTP 取数
+    # 模式把 7（人数）当成条数，与直连模式的 12 对不上。这里锁死口径：
+    # total_faces 必须等于向量库条数（清理后二者都应回到基线）。
+    st3 = call("GET", "/api/system/status").get("data") or {}
+    total_faces = int(fc.get("total_faces") or 0)
+    vec_after = int(st3.get("vector_count") or 0)
+    check("face-count.total_faces 与向量库条数一致（条数口径，非人数）",
+          total_faces == vec_after,
+          f"total_faces={total_faces} vs vector_count={vec_after}")
+    check("total_faces 不等于有脸学生人数（防止再次把人数当条数）",
+          total_faces != int(fc.get("one_face") or 0) + int(fc.get("multiple_faces") or 0)
+          or total_faces == 0,
+          f"total_faces={total_faces} vs one+multiple="
+          f"{int(fc.get('one_face') or 0) + int(fc.get('multiple_faces') or 0)}")
+
 
 def main() -> None:
     print("=" * 66)
