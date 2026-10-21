@@ -26,6 +26,8 @@ from collections import Counter
 REPO_OWNER = "flowerjan10"
 REPO_NAME = "face-attendance"
 EXPECT_NAME = "FlowerJan10"
+EXPECT_USER_ID = "17713492"          # 本账号的 Gitee 数字用户 ID
+EXPECT_LOGIN = "flowerjan10"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
@@ -92,19 +94,26 @@ def check_identity():
     else:
         print(f"  配置来源   = {scope or '未知'}")
 
-    # Gitee 的隐私邮箱域名是单数 user.noreply.gitee.com
+    # Gitee 隐私邮箱格式：<数字用户ID>+<用户名>@user.noreply.gitee.com
+    # 关键不是域名，而是【+ 前面的数字必须是你自己的用户 ID】，
+    # 否则 Gitee 会把提交解析到那个 ID 对应的账号名下（可能是个陌生人）。
     if email and "@users.noreply.gitee.com" in email:
         print(f"\n  {BAD} 邮箱域名是【复数 users】—— 那是 GitHub 的写法。")
-        print("       Gitee 官方是【单数 user.noreply.gitee.com】，且带 +用户名 前缀，")
-        print("       例如 12345+flowerjan10@user.noreply.gitee.com")
+        print("       Gitee 官方是【单数 user.noreply.gitee.com】，且带 +前缀。")
         print("       你现在这个地址 Gitee 从未生成过，账号里也不可能绑定，")
         print("       所以这批提交【不会计入贡献度绿点】。")
-        print("       → 打开 https://gitee.com/profile/emails 抄下「提交邮箱」，")
-        print("         然后 git config --global user.email \"<那个地址>\"")
         problems.append(f"邮箱域名错误：{email}（绿点不亮的根因）")
-    elif email and "@user.noreply.gitee.com" in email:
-        print(f"\n  {OK} 使用 Gitee 官方隐私邮箱域名（单数 user.noreply）")
-        print("       仍需确认该地址在「多邮箱管理」里是【已验证】状态")
+    elif email and "+" in email and email.endswith("@user.noreply.gitee.com"):
+        prefix = email.split("+")[0]
+        if prefix.isdigit() and prefix != EXPECT_USER_ID:
+            print(f"\n  {BAD} 隐私邮箱的数字前缀是 {prefix}，但你的用户 ID 是 {EXPECT_USER_ID}！")
+            print("       Gitee 按这个数字解析提交归属 —— 用错会把提交签到别人名下，")
+            print(f"       网页上会显示成陌生人的名字。")
+            print(f"       正确应为：{EXPECT_USER_ID}+flowerjan10@user.noreply.gitee.com")
+            problems.append(f"隐私邮箱前缀错（{prefix} ≠ {EXPECT_USER_ID}），会签到别人名下")
+        else:
+            print(f"\n  {OK} 隐私邮箱前缀 = 你的用户 ID {prefix}")
+            print("       仍需确认该地址在「多邮箱管理」里是【已验证】状态")
     elif email and "@" in email:
         print(f"\n  {INFO} 使用自定义邮箱 —— 必须已在 Gitee「多邮箱管理」中绑定并验证")
     return problems
@@ -272,7 +281,27 @@ def check_green_dots():
             print("  2026 年全年 0 个贡献 —— 绿点确实没亮")
             problems.append("贡献日历 2026 年无任何贡献")
 
-    # 4.3 push 事件
+    # 4.3 最近提交的作者归属实测（author.id 才是真正绑定的账号）
+    code, body = http_get(
+        f"https://gitee.com/api/v5/repos/{REPO_OWNER}/{REPO_NAME}/commits?per_page=3")
+    print(f"\n  最近提交作者归属 HTTP {code}")
+    if code == 200:
+        try:
+            for c in json.loads(body):
+                au = c.get("author") or {}
+                cid = str(au.get("id", ""))
+                clogin = au.get("login", "?")
+                cemail = (c.get("commit") or {}).get("author", {}).get("email", "")
+                ok = cid == EXPECT_USER_ID
+                print(f"    {OK if ok else BAD} {c['sha'][:8]}  "
+                      f"author.id={cid} login={clogin}  email={cemail}")
+                if not ok:
+                    print(f"       ^ 提交归属到了 {clogin}，不是你（{EXPECT_LOGIN}/{EXPECT_USER_ID}）")
+                    problems.append(f"最近提交归属到了 {clogin}（id={cid}），不是本账号")
+        except Exception:
+            print("  解析失败")
+
+    # 4.4 push 事件
     code, body = http_get(
         f"https://gitee.com/{REPO_OWNER}/contribution_timeline?year=2026",
         referer=f"https://gitee.com/{REPO_OWNER}/{REPO_NAME}")
@@ -303,21 +332,22 @@ def print_fix(problems):
         return
 
     print("  ① 绿点修复（最重要，必须你本人在浏览器里做）")
-    print("     a. 打开 https://gitee.com/profile/emails （多邮箱管理）")
-    print("     b. 找到「提交邮箱 / Web 提交邮箱」那一栏，抄下完整地址")
-    print("        · Gitee 隐私邮箱形如 12345+flowerjan10@user.noreply.gitee.com")
-    print("          注意是【单数 user】，且带 +用户名 前缀")
-    print("        · 或者是你已绑定验证过的真实邮箱")
-    print("     c. 回到仓库，改本地配置（--global 影响你所有仓库）：")
-    print("          git config --global user.email  \"上面抄下的地址\"")
+    print("     a. 确认你的 Gitee 数字用户 ID")
+    print("        打开 https://gitee.com/flowerjan10 ，头像图片 URL 里那串数字")
+    print(f"        本账号 = {EXPECT_USER_ID}")
+    print("     b. 设置本地身份（前缀必须是【你自己的 ID】，否则会签到别人名下）")
+    print(f"          git config --global user.email  \"{EXPECT_USER_ID}+flowerjan10@user.noreply.gitee.com\"")
     print("          git config --global user.name   \"FlowerJan10\"")
-    print("     d. 做一次新提交验证：")
-    print("          echo \"# 绿点验证\" >> README.md")
-    print("          git add README.md && git commit -m \"docs: 绿点归属验证\"")
+    print("     c. 做一次新提交并推送")
+    print("          git commit --allow-empty -m \"chore: 绿点归属验证\"")
     print("          git push origin master")
+    print("     d. 验证提交确实归属到你（author.id 应等于你的 ID）")
+    print(f"          curl -s \"https://gitee.com/api/v5/repos/{REPO_OWNER}/{REPO_NAME}/commits?per_page=1\" \\")
+    print("            | python -c \"import json,sys;d=json.load(sys.stdin);print(d[0]['author']['id'],d[0]['author']['login'])\"")
     print("     e. 等 1~5 分钟刷新 https://gitee.com/flowerjan10 看绿点")
     print("        · 亮 → 成功，以后照这个配置提交即可")
-    print("        · 不亮 → 回 b 确认该邮箱在多邮箱管理里是【已验证】状态")
+    print("        · 不亮 → 该邮箱需在「多邮箱管理」里处于【已验证】状态")
+    print("     ⚠️ 历史绿点补不回来（Gitee 不支持回溯），只能靠今后的新提交累积")
     print("     完整步骤见 docs/OWNER-GUIDE.md 第 1 章")
 
     print("\n  ② 令牌")

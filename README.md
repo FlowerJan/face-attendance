@@ -579,8 +579,20 @@ Gitee 贡献度按 commit 的【作者邮箱】统计，且该邮箱必须是账
 <数字用户ID>+flowerjan10@user.noreply.gitee.com
 ```
 
-前缀的数字是 **Gitee 分配的数字用户 ID**（本账号为 `17713492`），
-作用是让不同账号即使用户名部分相同、生成的隐私邮箱也不冲突。
+前缀的数字是 **Gitee 分配的数字用户 ID**，作用是让不同账号即使用户名部分相同、
+生成的隐私邮箱也不冲突。
+
+> ⚠️ **这个数字必须是你自己的用户 ID，否则提交会签到别人名下。**
+> 实测踩过的坑：曾用 `12345+flowerjan10@user.noreply.gitee.com` 提交，
+> Gitee 把它解析成了 **id=12345 的另一个账号（tuccuay）**，
+> 提交页面署名的不是本人而是那个陌生人。
+> **判断方法**：用 Gitee API 查提交详情，
+> `author.id` 是不是你自己的用户 ID（本账号 = `17713492`）。
+>
+> ```bash
+> curl -s "https://gitee.com/api/v5/repos/flowerjan10/face-attendance/commits/<sha>" \
+>   | python -c "import json,sys;d=json.load(sys.stdin);print(d['author']['id'],d['author']['login'])"
+> ```
 
 Gitee 从未生成过 `users.noreply.gitee.com` 这个地址，账号里也不可能绑定它，
 所以这 28 条提交**不计入贡献度**。
@@ -596,12 +608,21 @@ Gitee 从未生成过 `users.noreply.gitee.com` 这个地址，账号里也不�
 > ⚠️ 注意别被 contributors 接口骗了：它返回的 `name` 很可能只是 commit 元数据里
 > 的作者名字符串，**不能证明邮箱已与账号绑定**。判断绿点只认贡献日历。
 
-**修复方法**（需本人在浏览器操作）：
+**修复方法**：
 
-1. 打开 <https://gitee.com/profile/emails>，看「提交邮箱」那一栏的**完整地址**
-2. `git config --global user.email "<该地址>"`（同时 `git config --global user.name "FlowerJan10"`）
-3. 做一次新提交推上去，等几分钟刷新个人主页确认绿点亮起
-4. 若不亮，回第 1 步确认该地址状态是**已验证**（只添加未验证不生效）
+1. 确认你的 Gitee 数字用户 ID（就是 `https://gitee.com/flowerjan10` 个人主页
+   头像 URL 里的那串数字，本账号为 `17713492`）
+2. 设置本地身份：
+   ```bash
+   git config --global user.email "17713492+flowerjan10@user.noreply.gitee.com"
+   git config --global user.name  "FlowerJan10"
+   ```
+3. 做一次新提交推上去，用上面的 API 确认 `author.id` 是 `17713492`
+4. 等几分钟刷新个人主页，看绿点是否点亮
+
+> 📌 **历史绿点补不回来。** Gitee 官方明确说明「以前提交过的代码贡献度暂不支持回溯」，
+> 邮箱配对之前的那 28 条提交，绿点是永久缺失的 —— 只能靠今后的新提交累积。
+> 这也是「不改写历史」的技术依据：改写也补不回来，反而会让已有记录错位。
 
 > 本仓库已提供 `python scripts/doctor.py` 一键复现以上全部检查，
 > 完整操作手册见 **`docs/OWNER-GUIDE.md`**（第 1 章专门讲绿点修复）。
