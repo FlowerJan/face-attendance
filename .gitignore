@@ -33,6 +33,10 @@ _backup_*/
 tmp/
 temp/
 
+# ===== 凭据（私人令牌，禁止入库） =====
+.gitee-token
+*.token
+
 # ===== 编辑器 / 系统 =====
 .vscode/
 .idea/
