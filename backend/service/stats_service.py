@@ -85,9 +85,15 @@ def get_face_count(db: Session) -> dict:
         )
     ).scalar() or 0
 
+    # 脸照元数据总条数（挂在有效学生名下的）。
+    # 与 zero/one/multiple 的人数分布不同：one_face + multiple_faces 是「人数」，
+    # 只有这里才是「条数」。对外取数需要用这个字段与向量库条数做一致性校验。
+    total_faces = sum(face_map.values())
+
     return {"code": 0, "data": {
         "zero_face": zero_face,
         "one_face": one_face,
         "multiple_faces": multiple,
         "orphan_faces": orphans,
+        "total_faces": total_faces,
     }}

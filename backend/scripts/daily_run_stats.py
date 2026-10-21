@@ -103,10 +103,17 @@ def collect_over_http() -> dict | None:
     one = counts.get("one_face", 0) if counts else 0
     multiple = counts.get("multiple_faces", 0) if counts else 0
     orphans = counts.get("orphan_faces", 0) if counts else 0
-    # faces 元数据条数 = 一张脸的学生数 + 多张脸的学生数（每人至少一张）
-    face_rows = one + multiple
+    # 脸照元数据「条数」。注意 one_face / multiple_faces 是「人数」不是「条数」，
+    # 一个学生可能录了多张脸，所以必须用接口提供的 total_faces，
+    # 否则口径会和直连模式对不上（曾出现 7 vs 12 的偏差）。
+    face_rows = counts.get("total_faces", 0) if counts else 0
+    if not face_rows:
+        # 兼容旧版后端（未返回 total_faces）：退化为「有脸学生数」，至少不会崩
+        face_rows = one + multiple
 
     audit_summary = (audit or {}).get("summary", {}) or {}
+    # 向量总数取自审计接口（它内部读的是向量库），口径与直连模式一致
+    vector_count = audit_summary.get("total_vectors", 0) or 0
 
     return {
         "mode": "http",
@@ -114,8 +121,8 @@ def collect_over_http() -> dict | None:
         "faces": face_rows,
         "enrolled": enrolled,
         "coverage": round(enrolled / total * 100, 1) if total else 0.0,
-        "vectors": face_rows,   # 接口口径下向量数与 faces 行数同源
-        "vectors_known": False,
+        "vectors": vector_count,
+        "vectors_known": vector_count > 0,
         "orphans": orphans,
         "audit": {
             "cluster_count": audit_summary.get("cluster_count", 0),
@@ -237,6 +244,18 @@ def print_http_result(result: dict) -> None:
     print(f"  学生总数              {result['students']}")
     print(f"  已录入人脸人数        {result['enrolled']}")
     print(f"  录入覆盖率            {result['coverage']}%\n")
+
+    if result.get("vectors_known"):
+        print("[Milvus] 向量库")
+        print(f"  向量总数              {result['vectors']}")
+        faces = result.get("faces", 0)
+        if faces and result["vectors"] != faces:
+            print(f"  ⚠️  孤儿数据：SQLite {faces} 条 vs 向量 {result['vectors']} 条，"
+                  f"差 {faces - result['vectors']} 条")
+            print("     这类不一致正是 Interview 准备清单 2.1 里那个问题的实证。\n")
+        else:
+            print("  ✅ 与 SQLite 条数一致，无孤儿\n")
+
     audit = result.get("audit", {})
     if audit:
         print("[审计] GET /api/audit/duplicates")
