@@ -2,6 +2,7 @@
 import numpy as np
 from insightface.app import FaceAnalysis
 from core.config import settings
+from core.face_types import FaceCandidate
 
 _app: FaceAnalysis | None = None
 
@@ -26,24 +27,48 @@ def status() -> dict:
     }
 
 
+def detect_faces(image_bgr: np.ndarray) -> list[FaceCandidate]:
+    """检测图像中的所有人脸，按面积从大到小排序。
+
+    返回统一结构 FaceCandidate，而不是 insightface 的原始 Face，
+    这样 core/quality_gate.py 不必依赖检测器实现。
+    """
+    app = get_face_app()
+    faces = app.get(image_bgr)
+
+    candidates = []
+    for f in faces:
+        kps = getattr(f, "kps", None)
+        if kps is None:
+            continue
+        candidates.append(
+            FaceCandidate(
+                bbox=tuple(float(v) for v in f.bbox),
+                kps=np.asarray(kps, dtype=np.float64),
+                score=float(f.det_score),
+                embedding=np.asarray(f.normed_embedding, dtype=np.float32),
+            )
+        )
+
+    candidates.sort(key=lambda c: c.area, reverse=True)
+    return candidates
+
+
 def detect_and_embed(image_bgr: np.ndarray) -> dict | None:
     """
     Detect the largest face in image, return embedding + landmarks.
 
     Returns None if no face found.
     """
-    app = get_face_app()
-    faces = app.get(image_bgr)
-
-    if not faces:
+    candidates = detect_faces(image_bgr)
+    if not candidates:
         return None
 
-    # quality control: only keep the largest face (by bbox area)
-    largest = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+    largest = candidates[0]
 
     return {
-        "embedding": largest.normed_embedding,   # 512-dim, already L2-normalized
+        "embedding": largest.embedding,   # 512-dim, already L2-normalized
         "bbox": largest.bbox.tolist(),
-        "landmark_5": largest.kps.tolist() if hasattr(largest, "kps") else None,
-        "det_score": float(largest.det_score),
+        "landmark_5": largest.kps.tolist(),
+        "det_score": largest.score,
     }

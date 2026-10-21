@@ -1,4 +1,4 @@
-"""Face service — camera capture -> detect -> embed -> store (3 places)."""
+"""Face service — camera capture -> detect -> quality gate -> embed -> store (3 places)."""
 import logging
 import os
 
@@ -6,17 +6,24 @@ import cv2
 import numpy as np
 from sqlalchemy.orm import Session
 from core.config import settings
-from core.face_engine import detect_and_embed
+from core.face_engine import detect_faces
+from core.quality_gate import QualityGate
 from repository import student_repo, face_repo
 from service.cluster_service import CROSS_STUDENT_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
+# 门控规则集是纯配置化的无状态对象，全局复用一份即可
+_quality_gate = QualityGate()
+
 
 def enroll_face(db: Session, student_id: int, image_bytes: bytes) -> dict:
     """
-    Full pipeline: decode -> detect -> embed -> store.
+    Full pipeline: decode -> detect -> quality gate -> embed -> store.
     Stores: disk image + Milvus vector + SQLite metadata.
+
+    质量门控放在 detect 之后、embed/存盘之前 ——
+    脏图不允许进入库，否则后续识别失败时无法回溯原因。
     """
     student = student_repo.get_by_id(db, student_id)
     if not student:
@@ -28,14 +35,29 @@ def enroll_face(db: Session, student_id: int, image_bytes: bytes) -> dict:
     if img is None:
         return {"code": 1, "message": "invalid image data"}
 
-    # 2. detect face + extract embedding
-    result = detect_and_embed(img)
-    if result is None:
+    # 2. detect face + extract embedding（只跑一次检测，后面门控复用同一批结果）
+    faces = detect_faces(img)
+    if not faces:
         return {"code": 0, "data": {"detected": False, "reason": "no face detected"}}
+    main_face = faces[0]
 
-    embedding = result["embedding"]
+    # 3. 质量门控：不通过则拒绝入库，把可执行的提示直接回给前端
+    quality = _quality_gate.check(img, main_face, faces)
+    if not quality.passed:
+        return {
+            "code": 0,
+            "data": {
+                "detected": True,
+                "enrolled": False,
+                "reason": quality.reason,
+                "rule": quality.rule,
+                "quality": quality.to_dict(),
+            },
+        }
 
-    # 3. save image to disk (by student_no subdirectory)
+    embedding = main_face.embedding
+
+    # 4. save image to disk (by student_no subdirectory)
     student_dir = os.path.join(str(settings.FACE_IMG_DIR), student.student_no)
     os.makedirs(student_dir, exist_ok=True)
     import time
@@ -46,7 +68,7 @@ def enroll_face(db: Session, student_id: int, image_bytes: bytes) -> dict:
     # relative path for storage
     rel_path = f"/uploads/faces/{student.student_no}/{filename}"
 
-    # 4. create SQLite metadata record first (to get auto-increment id as face_id)
+    # 5. create SQLite metadata record first (to get auto-increment id as face_id)
     face = face_repo.create_face_record(db, student_id, rel_path)
     # use the SQLite auto-increment id as Milvus face_id (ensures 1:1 mapping)
     face_repo_face_id = face.id
@@ -59,13 +81,13 @@ def enroll_face(db: Session, student_id: int, image_bytes: bytes) -> dict:
     db.commit()
     db.refresh(db_face)
 
-    # 5. insert vector into Milvus
+    # 6. insert vector into Milvus
     face_repo.insert_vector(face_repo_face_id, student_id, embedding)
 
-    # 6. update student face_status
+    # 7. update student face_status
     student_repo.update_face_status(db, student_id, 1)
 
-    # 7. 实时查重：与库中已有向量比对（Milvus 向量检索）
+    # 8. 实时查重：与库中已有向量比对（Milvus 向量检索）
     similar_existing = []
     try:
         for hit in face_repo.search_similar(embedding, top_k=5):
@@ -86,11 +108,42 @@ def enroll_face(db: Session, student_id: int, image_bytes: bytes) -> dict:
 
     return {"code": 0, "data": {
         "detected": True,
+        "enrolled": True,
         "face_id": face_repo_face_id,
         "image_path": rel_path,
+        "quality": quality.to_dict(),
         "similar_existing": similar_existing,
         "duplicate_suspect": bool(similar_existing),
     }}
+
+
+def preview_quality(image_bytes: bytes) -> dict:
+    """只做质量诊断，不落库、不写向量。
+
+    用途：前端在真正提交录入之前先探一次，
+    让用户看到「哪一项不达标、差多少」，而不是提交后才知道被拒。
+    """
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        return {"code": 1, "message": "invalid image data"}
+
+    faces = detect_faces(img)
+    if not faces:
+        return {"code": 0, "data": {"detected": False, "reason": "no face detected"}}
+
+    quality = _quality_gate.check(img, faces[0], faces)
+    return {
+        "code": 0,
+        "data": {
+            "detected": True,
+            "face_count": len(faces),
+            "passed": quality.passed,
+            "reason": quality.reason,
+            "rule": quality.rule,
+            "quality": quality.to_dict(),
+        },
+    }
 
 
 def get_student_faces(db: Session, student_id: int) -> dict:

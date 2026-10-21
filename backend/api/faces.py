@@ -17,6 +17,13 @@ async def enroll_face(
     return face_service.enroll_face(db, student_id, image_bytes)
 
 
+@router.post("/faces/preview")
+async def preview_face_quality(file: UploadFile = File(...)):
+    """质量预检 —— 只诊断不入库，供前端在提交录入前展示。"""
+    image_bytes = await file.read()
+    return face_service.preview_quality(image_bytes)
+
+
 @router.get("/students/{student_id}/faces")
 def get_faces(student_id: int, db: Session = Depends(get_db_session)):
     return face_service.get_student_faces(db, student_id)

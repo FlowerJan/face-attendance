@@ -128,6 +128,8 @@ def real_face_phase(enums: dict) -> None:
     base_vec = int((call("GET", "/api/system/status").get("data") or {}).get("vector_count") or 0)
     created_ids: list[int] = []
     detected_count = 0
+    enrolled_count = 0
+    gate_rejects: list[str] = []
     for fname in files:
         person = os.path.splitext(fname)[0].split("__")[0]
         no = f"RF{random.randint(100000, 999999)}"
@@ -149,10 +151,18 @@ def real_face_phase(enums: dict) -> None:
             content = fp.read()
         body, hdrs = multipart("file", fname, content)
         r = call("POST", f"/api/students/{sid}/faces", form=body, headers=hdrs)
-        hit = (r.get("data") or {}).get("detected") is True
+        data = r.get("data") or {}
+        hit = data.get("detected") is True
+        # 质量门控会在检测通过、画质不达标时拒绝入库：
+        # 此时 detected=True 但 enrolled=False，两者必须分开断言，
+        # 否则「检测到但被门控拒收」会被误当成录入成功。
+        enrolled_ok = data.get("enrolled") is True
         detected_count += 1 if hit else 0
+        enrolled_count += 1 if enrolled_ok else 0
+        if hit and not enrolled_ok:
+            gate_rejects.append(f"{fname}:{data.get('rule', '-')}")
         check(f"录入 {fname} 检测到人脸", hit,
-              ((r.get("data") or {}).get("reason") or r.get("message") or "")[:60])
+              (data.get("reason") or r.get("message") or "")[:60])
 
     if not created_ids:
         return
@@ -195,9 +205,15 @@ def real_face_phase(enums: dict) -> None:
 
     check("真实人脸至少检出 1 张", detected_count > 0, f"{detected_count}/{len(files)}")
 
+    # 质量门控：真实样本应全部通过门控并入库。
+    # 若有被拒，说明阈值定得太严 —— 真实合规素材被误伤了。
+    check("真实人脸全部通过质量门控并入库", enrolled_count == len(files),
+          f"入库 {enrolled_count}/{len(files)}"
+          + (f"，被拒：{', '.join(gate_rejects)}" if gate_rejects else ""))
+
     st = call("GET", "/api/system/status").get("data") or {}
-    check("真实向量已写入向量库", int(st.get("vector_count") or 0) >= detected_count,
-          f"vector_count={st.get('vector_count')}, 检出={detected_count}")
+    check("真实向量已写入向量库", int(st.get("vector_count") or 0) >= enrolled_count,
+          f"vector_count={st.get('vector_count')}, 入库={enrolled_count}")
 
     audit = call("GET", "/api/audit/duplicates").get("data") or {}
     sm = audit.get("summary") or {}
@@ -258,6 +274,88 @@ def real_face_phase(enums: dict) -> None:
           or total_faces == 0,
           f"total_faces={total_faces} vs one+multiple="
           f"{int(fc.get('one_face') or 0) + int(fc.get('multiple_faces') or 0)}")
+
+
+def quality_gate_phase() -> None:
+    """质量门控端到端验证：坏图必须被拒且不落库，好图必须放行。
+
+    这是门控的核心业务价值 —— 脏数据进不来。
+    验证方式：拿真实样本人工退化，走完整 HTTP 链路，
+    断言「数据库里没多出这张脸照」。
+    """
+    print("\n[9] 质量门控（坏图拒收 + 不落库）")
+    if not os.path.isdir(SAMPLE_DIR):
+        check("质量门控用例（跳过：缺 scripts/sample_faces/）", True, "skipped")
+        return
+    files = sorted(f for f in os.listdir(SAMPLE_DIR) if f.lower().endswith(IMG_EXT))
+    if not files:
+        check("质量门控用例（跳过：目录为空）", True, "skipped")
+        return
+
+    enums = call("GET", "/api/enums").get("data") or {}
+    created = call("POST", "/api/students", {
+        "student_no": f"QG{random.randint(100000, 999999)}",
+        "name": "门控测试",
+        "gender": "男",
+        "class_name": (enums.get("classes") or ["智造本2024-1班"])[0],
+        "major": (enums.get("majors") or ["计算机科学与技术"])[0],
+        "enroll_year": 2024,
+    })
+    sid = (created.get("data") or {}).get("id")
+    if not sid:
+        check("质量门控用例（建档失败）", False, str(created.get("message"))[:80])
+        return
+
+    # ---- 1) 预检接口：坏图应被拒 ----
+    src = os.path.join(SAMPLE_DIR, files[0])
+    with open(src, "rb") as fp:
+        original = fp.read()
+    img = cv2.imdecode(np.frombuffer(original, np.uint8), cv2.IMREAD_COLOR)
+
+    # 用 σ=4 的中度模糊：检测器仍能认出人脸，但画质不达标 ——
+    # 这才真正走到门控逻辑。σ=8 会让人脸直接检不出（no face detected），
+    # 那是上游检测的拒绝，不是门控在起作用。
+    blurred = cv2.imencode(".jpg", cv2.GaussianBlur(img, (0, 0), 4.0))[1].tobytes()
+    b_body, b_hdrs = multipart("file", "blur.jpg", blurred)
+    prev = call("POST", "/api/faces/preview", form=b_body, headers=b_hdrs)
+    pdata = prev.get("data") or {}
+    check("POST /api/faces/preview 模糊图被拒", prev.get("code") == 0 and pdata.get("passed") is False,
+          (pdata.get("reason") or prev.get("message") or "")[:60])
+    check("预检返回了触发规则", bool(pdata.get("rule")), str(pdata.get("rule")))
+
+    # 预检不应产生任何副作用
+    before = call("GET", f"/api/students/{sid}/faces").get("data") or []
+    check("预检不落库（脸照数未变）", len(before) == 0, f"faces={len(before)}")
+
+    # ---- 2) 模糊图走录入接口：必须被拒且不入库 ----
+    body, hdrs = multipart("file", "blur.jpg", blurred)
+    r = call("POST", f"/api/students/{sid}/faces", form=body, headers=hdrs)
+    rdata = r.get("data") or {}
+    check("模糊图录入被门控拒绝", r.get("code") == 0 and rdata.get("enrolled") is False,
+          (rdata.get("reason") or r.get("message") or "")[:60])
+    after = call("GET", f"/api/students/{sid}/faces").get("data") or []
+    check("被拒的脏图未写入数据库", len(after) == 0, f"faces={len(after)}")
+
+    # ---- 3) 过暗图：应报「光照不足」而不是「画面模糊」 ----
+    dark = cv2.imencode(".jpg", (img.astype(np.float32) * 0.18).astype(np.uint8))[1].tobytes()
+    d_body, d_hdrs = multipart("file", "dark.jpg", dark)
+    dr = call("POST", "/api/faces/preview", form=d_body, headers=d_hdrs)
+    ddata = dr.get("data") or {}
+    check("过暗图被拒", ddata.get("passed") is False,
+          (ddata.get("reason") or "")[:60])
+    check("过暗提示指向光照（G6）而非模糊（G7）", ddata.get("rule") == "G6",
+          f"rule={ddata.get('rule')} reason={ddata.get('reason')}")
+
+    # ---- 4) 正常图：应放行并入库 ----
+    ok_body, ok_hdrs = multipart("file", files[0], original)
+    ok_r = call("POST", f"/api/students/{sid}/faces", form=ok_body, headers=ok_hdrs)
+    okdata = ok_r.get("data") or {}
+    check("正常图通过门控并入库", ok_r.get("code") == 0 and okdata.get("enrolled") is True,
+          (okdata.get("reason") or ok_r.get("message") or "")[:60])
+    final_faces = call("GET", f"/api/students/{sid}/faces").get("data") or []
+    check("入库后脸照数为 1（只有合格那张）", len(final_faces) == 1, f"faces={len(final_faces)}")
+
+    call("DELETE", f"/api/students/{sid}")
 
 
 def main() -> None:
@@ -350,6 +448,8 @@ def main() -> None:
     check("删除后查询返回不存在", gone.get("code") != 0, gone.get("message", ""))
 
     real_face_phase(enums)
+
+    quality_gate_phase()
 
     print("\n" + "=" * 66)
     print(f"结果：通过 {len(passed)} 项，失败 {len(failed)} 项")
