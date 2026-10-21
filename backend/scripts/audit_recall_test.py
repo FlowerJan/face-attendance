@@ -16,7 +16,7 @@
 
 用法（在 backend 目录下）：
     .venv/Scripts/python.exe scripts/audit_recall_test.py
-    .venv/Scripts/python.exe scripts/audit_recall_test.py --reset   # 清空评测库后重跑
+    .venv/Scripts/python.exe scripts/audit_recall_test.py --keep   # 沿用现有评测库（会撞学号唯一约束）
 """
 from __future__ import annotations
 
@@ -464,12 +464,17 @@ def diag(app) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--reset", action="store_true", help="先清空评测库再跑")
+    ap.add_argument("--keep", action="store_true",
+                    help="保留评测库现有数据（默认每次运行前清空，避免学号 UNIQUE 冲突）")
     ap.add_argument("--no-report", action="store_true", help="不写 Markdown 报告")
     ap.add_argument("--diag", action="store_true", help="只做素材检测与相似度诊断，不写库")
     args = ap.parse_args()
 
-    if args.reset:
+    # 评测库是固定路径的独立库，不清空就会残留上一次的学号与向量，
+    # 第二次运行必然撞 UNIQUE(student_no) 约束。因此默认清空。
+    if args.keep:
+        print("[eval] --keep: 沿用现有评测库（学号冲突时会失败）")
+    else:
         reset_eval_db()
 
     t0 = time.time()
