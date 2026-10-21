@@ -415,6 +415,28 @@ bash push-to-gitee-auto.sh
 > 需要修改历史作者时，**一次性**用 `git filter-branch`/`git rebase --exec`
 > 在推送前完成，之后不要再动。
 
+### 本项目的邮箱与绿点现状（已核验）
+
+两个作者邮箱均已在 Gitee 完成验证，提交归属正常：
+
+| 作者邮箱 | 提交数 | 说明 |
+|---|---:|---|
+| `flowerjan10@users.noreply.gitee.com` | 19 | 隐私邮箱，天然属于本账号，无需验证 |
+| `2334169670@qq.com` | 2 | 已在「设置 → 多邮箱管理」完成验证 |
+
+核验方式（无需改写任何历史）：
+
+```bash
+curl -s "https://gitee.com/api/v5/repos/flowerjan10/face-attendance/contributors?access_token=<TOKEN>"
+```
+
+返回两个邮箱的 `name` 均为 `FlowerJan10`，贡献数 19 / 2 —— 说明两个邮箱的提交
+**都已正确归属到本账号**，贡献图统计不受影响。
+
+> 后续新提交统一用 `flowerjan10@users.noreply.gitee.com`：既计入绿点，
+> 又不在公开仓库里暴露真实邮箱。已在 `push-to-gitee-auto.sh` 与
+> `push-to-gitee-safe.bat` 中固定。
+
 ---
 
 ## 十、已知边界（第一阶段范围外）
