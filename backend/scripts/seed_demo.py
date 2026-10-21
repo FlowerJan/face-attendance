@@ -54,7 +54,9 @@ def make_students(db, count: int) -> list[int]:
             class_name=random.choice(classes),
             major=random.choice(majors),
             enroll_year=random.choice([2023, 2024]),
-            phone=f"13{random.randint(100000000, 999999999)}",
+            # 演示数据一律使用明显可辨的假号（138000000xx 段），
+            # 避免随机生成的号段撞上真实用户手机号。
+            phone=f"1380000{i:04d}",
         ))
         ids.append(student.id)
         exist.add(no)

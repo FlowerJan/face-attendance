@@ -78,9 +78,28 @@ FastAPI + Vue 3 全栈实现，覆盖需求文档第一阶段的四大模块：
 
 ```
 face-attendance/
-├── start-backend.cmd          一键启动后端 (8000)
-├── start-frontend.cmd         一键启动前端 (5173)
-├── quiz.html                  知识点考核（14 题交互式）
+├── README.md                  本文件
+├── RESUME.md                  简历素材（可直接抄，含面试口径说明）
+├── LICENSE                    MIT
+├── 每日清单.md                 每日自动取数记录（脚本维护）
+│
+├── scripts/                   运维脚本（与业务代码分离）
+│   ├── start-backend.cmd      一键启动后端 (8000)
+│   ├── start-frontend.cmd     一键启动前端 (5173)
+│   ├── push-to-gitee.bat      交互式推送
+│   ├── push-to-gitee-safe.bat 只推送、不改写历史
+│   ├── push-to-gitee-auto.sh  无人值守推送（读 .gitee-token）
+│   └── check-gitee-contrib.sh Gitee 贡献归属巡检
+│
+├── tools/                     一次性脚手架生成器（保留以复现工程结构）
+│   ├── gen_backend.py         生成 FastAPI 后端目录骨架
+│   └── gen_frontend.py        生成 Vue 前端目录骨架
+│
+├── docs/
+│   ├── quiz.html              知识点考核（14 题交互式）
+│   ├── blog/                  技术笔记
+│   ├── audit-recall-report.md 脸库审计召回率评测报告
+│   └── screenshots/           README 界面图
 │
 ├── backend/
 │   ├── main.py                入口：路由装配 + lifespan + 统一异常处理
@@ -115,7 +134,8 @@ face-attendance/
 │       ├── e2e_test.py         端到端联调（50 项断言）
 │       ├── audit_recall_test.py 脸库审计召回率评测（独立评测库，不动演示数据）
 │       ├── daily_run_stats.py  每日真实运行取数 + SQLite/Milvus 条数一致性校验
-│       └── capture_ui.py       批量截图 README 用界面图
+│       ├── capture_ui.py       批量截图 README 用界面图
+│       └── pii_guard.py        ★ 演示数据 PII 守卫（截图前必跑，防手机号进截图）
 │
 └── frontend/
     ├── vite.config.js         /api、/uploads、/ws 代理到 8000
@@ -146,8 +166,8 @@ python -m venv .venv
 ### 日常启动
 
 ```bat
-start-backend.cmd
-start-frontend.cmd
+scripts\start-backend.cmd
+scripts\start-frontend.cmd
 ```
 
 然后浏览器打开 **http://localhost:5173** ；接口文档在 **http://localhost:8000/docs** 。
@@ -157,7 +177,7 @@ start-frontend.cmd
 ```bat
 REM 后端默认只听 127.0.0.1；设置 APP_HOST 可放开监听
 set APP_HOST=0.0.0.0
-start-backend.cmd
+scripts\start-backend.cmd
 ```
 
 > ⚠️ 放开监听前请注意：第一阶段**没有做登录鉴权**，任何能访问到该端口的人都能读写全部接口。
@@ -338,7 +358,7 @@ REM 一人多号：故意把同一身份拆到不同学号（制造脏数据）
 ```bat
 cd backend
 
-REM 端到端联调（需后端已启动）：48 项断言，覆盖全部阶段一接口
+REM 端到端联调（需后端已启动）：50 项断言，覆盖全部阶段一接口
 .venv\Scripts\python.exe scripts\e2e_test.py
 
 REM 生成演示数据（需先停后端）：28 名学生 + 真实人脸录入（按身份分组）
