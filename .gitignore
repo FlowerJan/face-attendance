@@ -43,3 +43,8 @@ temp/
 .DS_Store
 Thumbs.db
 *.log
+
+# ===== 废弃代码备份（.bak 是编辑器/手工产生的临时备份，不应入库） =====
+*.bak
+*.orig
+*~
