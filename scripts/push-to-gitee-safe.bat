@@ -16,8 +16,26 @@ if "%REPONAME%"=="" set REPONAME=face-attendance
 
 echo.
 echo [1/5] local identity (used for NEW commits only)
+REM ---------------------------------------------------------------
+REM 重要：Gitee 绿点按 commit 的【作者邮箱】统计，该邮箱必须是
+REM 账号在「设置 - 多邮箱管理」里已验证/绑定的地址。
+REM 注意 Gitee 官方隐私邮箱是【单数】user.noreply.gitee.com 且带
+REM +用户名 前缀，例如 12345+flowerjan10@user.noreply.gitee.com
+REM 下面让你自己填，避免写死一个绑不上的地址。
+REM ---------------------------------------------------------------
+set /p GITMAIL=   your Gitee commit email (from https://gitee.com/profile/emails) [keep current]:
+if "%GITMAIL%"=="" (
+  for /f "delims=" %%e in ('git config user.email') do set GITMAIL=%%e
+  echo   keeping current: %GITMAIL%
+) else (
+  git config user.email "%GITMAIL%"
+)
 git config user.name "FlowerJan10"
-git config user.email "flowerjan10@users.noreply.gitee.com"
+echo   user.name  = FlowerJan10
+echo   user.email = %GITMAIL%
+echo   ^> 打开 https://gitee.com/profile/emails 确认这个地址已验证，否则绿点不会亮
+echo   ^> 跑 python scripts\doctor.py 可自查
+echo.
 
 echo [2/5] remote
 git remote remove origin 2>nul
