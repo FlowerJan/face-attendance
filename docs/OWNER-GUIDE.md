@@ -92,22 +92,20 @@ Gitee 认得出「这是谁」（因为 `user.name` 是 FlowerJan10），
 > 顺带说明：contributors 接口里 `2334169670@qq.com` 那 2 条显示归属正确，
 > 但那是历史遗留（早期 2 个 commit），不代表它现在还在生效。
 
-### 1.3 修复步骤（必须你本人在浏览器里做，我做不了）
+### 1.3 修复步骤
 
-**第 1 步 —— 查出你的正确提交邮箱**
+**第 1 步 —— 确认你的数字用户 ID**
 
-打开：<https://gitee.com/profile/emails>
+打开 <https://gitee.com/flowerjan10>，从头像图片的 URL 里读出那串数字。
+本账号 = `17713492`。
 
-页面上找「**提交邮箱**」那一栏（也可能是「Web 提交邮箱」），把它**完整复制下来**。
-它大概是这两种之一：
-
-- `xxxx+flowerjan10@user.noreply.gitee.com`（开了邮箱隐私保护时的自动生成地址）
-- 你绑定过的真实邮箱（如 QQ 邮箱）
+> ⚠️ 前缀数字写错的后果：提交会被签到那个 ID 对应的账号名下。
+> 本项目就踩过 —— 用占位示例 `12345+...` 提交，网页署名显示成了别人。
 
 **第 2 步 —— 改本地配置**
 
 ```bash
-git config --global user.email "第1步复制的完整地址"
+git config --global user.email "17713492+flowerjan10@user.noreply.gitee.com"
 git config --global user.name  "FlowerJan10"
 ```
 
@@ -117,13 +115,15 @@ git config --global user.name  "FlowerJan10"
 **第 3 步 —— 做一次新提交验证**
 
 ```bash
-echo "# 绿点归属验证" >> README.md
-git add README.md
-git commit -m "docs: 绿点归属验证"
+git commit --allow-empty -m "chore: 绿点归属验证"
 git push origin master
 ```
 
-**第 4 步 —— 看结果**
+**第 4 步 —— 校验归属**
+
+用 1.2·1 里的命令确认 `author.id = 17713492`。
+
+**第 5 步 —— 看结果**
 
 等 1~5 分钟（Gitee 贡献度是异步统计的，不是实时），刷新 <https://gitee.com/flowerjan10>。
 
@@ -131,13 +131,16 @@ git push origin master
 - ❌ **没亮** → 回第 1 步，确认那个地址在「多邮箱管理」里状态是**已验证**。
   只「添加」没「验证」是不算的。
 
-**第 5 步 —— 清理这次验证提交（可选）**
+> 📌 **历史绿点补不回来。** Gitee 官方明确说明「以前提交过的代码贡献度暂不支持回溯」。
+> 邮箱配对之前的那 28 条提交，绿点是永久缺失的 —— 只能靠今后的新提交累积。
+> 这也是「不改写历史」的技术依据：改写也补不回来，反而让已有记录错位。
+
+**第 6 步 —— 清理这次验证提交（可选）**
 
 绿点验证用的是一个无意义的提交。想抹掉它：
 
 ```bash
-git reset --soft HEAD~1      # 撤销提交但保留文件改动
-git checkout README.md      # 放弃这次改动（也一起放弃了 README 的原内容，慎用）
+git reset --hard HEAD~1      # 撤销这条空提交（它不带任何文件改动，撤销无损失）
 ```
 
 > ⚠️ **不要用 `git reset --hard`**、不要用 `git rebase` 改历史。
@@ -153,13 +156,18 @@ git checkout README.md      # 放弃这次改动（也一起放弃了 README 的
 git config user.email
 ```
 
-输出应该长这样（单数 `user` + `+flowerjan10`）：
+输出应该长这样（单数 `user` + `+你的数字用户ID`）：
 
 ```
-xxxx+flowerjan10@user.noreply.gitee.com
+17713492+flowerjan10@user.noreply.gitee.com
 ```
 
-如果看到 `users.noreply`（复数），说明配错了，回去看 1.3。
+两种错法都要立刻改：
+
+- 看到 `users.noreply`（**复数**）→ 域名是 GitHub 的写法，Gitee 认不出
+- 看到 `12345+...` 之类 → 数字不是你的 ID，提交会签到别人名下
+
+改法见 1.3 第 2 步。
 
 ---
 

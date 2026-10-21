@@ -20,7 +20,8 @@ REM ---------------------------------------------------------------
 REM 重要：Gitee 绿点按 commit 的【作者邮箱】统计，该邮箱必须是
 REM 账号在「设置 - 多邮箱管理」里已验证/绑定的地址。
 REM 注意 Gitee 官方隐私邮箱是【单数】user.noreply.gitee.com 且带
-REM +用户名 前缀，例如 12345+flowerjan10@user.noreply.gitee.com
+REM +<你的数字用户ID> 前缀，例如 17713492+flowerjan10@user.noreply.gitee.com
+REM 前缀数字必须是【你自己】的用户 ID，否则提交会签到别人名下！
 REM 下面让你自己填，避免写死一个绑不上的地址。
 REM ---------------------------------------------------------------
 set /p GITMAIL=   your Gitee commit email (from https://gitee.com/profile/emails) [keep current]:
