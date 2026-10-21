@@ -576,12 +576,14 @@ Gitee 贡献度按 commit 的【作者邮箱】统计，且该邮箱必须是账
 **Gitee 官方是单数 `user`，且带 `+用户名` 前缀**：
 
 ```
-xxxx+flowerjan10@user.noreply.gitee.com
+<数字用户ID>+flowerjan10@user.noreply.gitee.com
 ```
 
+前缀的数字是 **Gitee 分配的数字用户 ID**（本账号为 `17713492`），
+作用是让不同账号即使用户名部分相同、生成的隐私邮箱也不冲突。
+
 Gitee 从未生成过 `users.noreply.gitee.com` 这个地址，账号里也不可能绑定它，
-所以这 28 条提交虽然 `name` 字段正确归属到 FlowerJan10，
-**却因邮箱无法被识别而不计入贡献度**。
+所以这 28 条提交**不计入贡献度**。
 
 实测数据（2026-10-21 实测，非推测）：
 
@@ -590,6 +592,9 @@ Gitee 从未生成过 `users.noreply.gitee.com` 这个地址，账号里也不�
 | 提交归属 | `/api/v5/repos/.../contributors` | 30 条全部 `name=FlowerJan10` ✅ |
 | 推送事件 | `/contribution_timeline?year=2026` | 20 条 push，`is_proper=True` ✅ |
 | **贡献日历** | `/contribution_calendar?year=2026` | **全年仅 1 天亮（10-16，2 个贡献）** ❌ |
+
+> ⚠️ 注意别被 contributors 接口骗了：它返回的 `name` 很可能只是 commit 元数据里
+> 的作者名字符串，**不能证明邮箱已与账号绑定**。判断绿点只认贡献日历。
 
 **修复方法**（需本人在浏览器操作）：
 
