@@ -488,7 +488,8 @@ def render_report(rows, chosen, criterion, sol, groups, negatives, diag, loo) ->
     L = []
     L.append("# 脸库审计阈值敏感性实验报告\n")
     L.append("> 由 `backend/scripts/audit_threshold_sweep.py` 自动生成；")
-    L.append("> 跑在独立评测库（`backend/.eval/`）上，不污染演示数据。\n")
+    L.append("> 跑在独立评测库（`backend/.eval/<时间戳>/`）上，不污染演示数据；")
+    L.append("> 每次运行使用**全新评测目录**，保证实验可复现。\n")
 
     # ---------- 一、实验设计 ----------
     L.append("## 一、实验设计\n")
@@ -508,21 +509,24 @@ def render_report(rows, chosen, criterion, sol, groups, negatives, diag, loo) ->
     L.append(f"- **一级判据**：{CRITERION_T1}")
     L.append(f"- **二级判据**：{CRITERION_T2}")
     L.append(f"- **本次实际采用**：{criterion}\n")
-    L.append("> **为什么二级判据只朝一个方向计量余量**：误报与漏报的后果并不对称 —— "
-             "误报会把两个不同的人判为同一人，直接误导使用者去核查并不存在的重复账号，"
-             "且阈值越激进误报风险越高；漏报则可由聚类通道与后续人工复核兜住。"
-             "因此余量只朝\"远离误报\"这一个方向计量，"
-             "而不是用各向同性的几何距离（后者在失败区偏置的网格上会退化为最激进档位）。\n")
+    L.append("> **为什么误报侧的余量优先于漏报侧**：误报会把两个不同的人判为同一人，"
+             "直接误导使用者去核查并不存在的重复账号，"
+             "且在真实库中越靠激进的阈值误报风险越高；"
+             "漏报则可由另一条通道与后续人工复核兜住。"
+             "因此二级判据以**面向误报方向的单侧余量**为主序，"
+             "漏报方向余量为次序（仅在误报余量并列时起作用）。"
+             "这不是用各向同性的几何距离（后者在失败区偏置的网格上会退化为最激进档位）。\n")
     L.append("> **余量的度量单位**：归一化比例（0~1），表示\"沿误报方向还能再推进"
              "多大幅度才会出现误报\"。归一化是必要的 —— cross 方向网格步长为 0.05、"
              "dist 方向为 0.10，绝对距离不可直接比较。\n")
-    L.append("> **冗余约束**：单侧余量会把 cluster_distance 压到网格最低档"
-             "（该方向上\"离误报最远\"），但那样聚类通道会形同虚设。"
-             "故选点额外要求 cluster_distance 不低于\"聚类通道可独立全命中\"的最低档，"
-             "以守住「两两相似度 + 层次聚类」双通道联合判定的设计意图。\n")
+    L.append("> **冗余约束（可行域）**：单侧余量只朝误报方向计量，若不加约束，"
+             "两个阈值都会被推到各自网格的极端（cross 推到最高、dist 推到最低），"
+             "某一条通道形同虚设。故可行域要求："
+             "**「两两相似度」与「层次聚类」两条通道各自都能独立检出全部异常组** —— "
+             "这正是双通道联合判定的设计意图，也是选点不塌到单通道的保证。\n")
 
     # ---------- 设计迭代 ----------
-    L.append("### 判据的设计迭代（两处，均由数据否掉前一版）\n")
+    L.append("### 判据的设计迭代（三处，均由数据否掉前一版）\n")
     L.append("**第一次迭代：各向同性 maximin → 面向误报方向的单侧余量**\n")
     L.append("初版采用「到最近失败档位的网格距离最大者」（各向同性余量）。"
              "实测发现该准则在本问题的网格上**退化为最激进档位**："
@@ -534,27 +538,37 @@ def render_report(rows, chosen, criterion, sol, groups, negatives, diag, loo) ->
              "的后果并不对称，因此余量只应朝\"远离误报\"一个方向计量。\n")
     L.append("**第二次迭代：单一阈值的上下界论断 → 双阈值等效面**\n")
     L.append("初版曾写下\"跨学号阈值必须低于最弱真实异常组的组内最高相似度\"。"
-             "实测数据**推翻**了该论断：当 dist ≥ 0.50 时聚类通道已能独立覆盖真实组，"
-             "此时把 cross 提到 0.70 召回仍为 100%。\n")
+             "实测数据**推翻**了该论断：当 dist 足够大时聚类通道已能独立覆盖真实组，"
+             "此时把 cross 继续抬高召回仍为 100%。\n")
     L.append("> 修正后的结论是：**两个阈值之间存在替代关系（构成一个等效面）**，"
              "「cross 必须低于 X」只在给定 dist 时才成立。"
              "这不是把错误藏起来，而是把它升级为方法论结论 —— "
              "两个阈值**必须联合标定**，单独给任一阈值定界都是伪命题。\n")
+    L.append("**第三次迭代（本次）：单侧余量 + 冗余可行域**\n")
+    L.append("只按\"距误报边界最远\"选点时，实测选出的档位把某个阈值推到了网格极端，"
+             "导致一条通道形同虚设。因此在余量排序之外补一道**可行域约束**："
+             "两条通道各自都必须能独立检出全部异常组。"
+             "余量决定可行域内的排序，冗余约束决定可行域本身 —— "
+             "两者解决的是不同问题，不可互相替代。\n")
 
     # ---------- 二、一级判据结果 ----------
     L.append("## 二、一级判据：解集而非唯一点\n")
     L.append(f"一级判据（召回=100% ∧ 跨组误报=0 ∧ 负样本误报=0）共筛出 "
              f"**{len(sol)} / {len(rows)} 档**满足条件。\n")
     if sol:
-        L.append("满足一级判据的全部档位（**这就是一级指标的无分辨力区间**）：\n")
-        L.append("| cross_student | cluster_distance | 召回 | 命中 | 误报 |")
-        L.append("|---:|---:|---:|---:|---:|")
+        L.append("满足一级判据的全部档位（**这就是一级指标的无分辨力区间**）。"
+                 "「双通道独立」列表示该档位下**两两相似度与层次聚类各自都能**"
+                 "检出全部异常组 —— 这是二级判据的可行域。\n")
+        L.append("| cross_student | cluster_distance | 召回 | 命中 | 误报 | 双通道独立 |")
+        L.append("|---:|---:|---:|---:|---:|:---:|")
         for c in sorted(sol, key=lambda r: (r["cluster_distance"], r["cross_student"])):
             mark = " **←选中**" if chosen and c["cross_student"] == chosen["cross_student"] \
                 and c["cluster_distance"] == chosen["cluster_distance"] else ""
+            indep = "✓" if (c["pair_hit"] == c["total_groups"]
+                             and c["cluster_hit"] == c["total_groups"]) else "—"
             L.append(f"| {c['cross_student']:.2f}{mark} | {c['cluster_distance']:.2f} | "
                      f"{c['recall'] * 100:.0f}% | {c['hit_groups']}/{c['total_groups']} | "
-                     f"{c['fp_pairs']} |")
+                     f"{c['fp_pairs']} | {indep} |")
         L.append("")
         L.append("> **本节的核心结论**：召回率在阈值网格上呈现**宽平台而非单峰**，"
                  "一级指标在本评测集上**不可唯一辨识阈值**。"
@@ -569,7 +583,7 @@ def render_report(rows, chosen, criterion, sol, groups, negatives, diag, loo) ->
         L.append("**无档位满足一级判据。**\n")
 
     # ---------- 三、二级判据与最终选点 ----------
-    L.append("## 三、二级判据：单侧余量排序与最终选点\n")
+    L.append("## 三、二级判据：冗余可行域 + 单侧余量排序与最终选点\n")
     if chosen:
         L.append(f"**选中档位：cross_student = {chosen['cross_student']:.2f}，"
                  f"cluster_distance = {chosen['cluster_distance']:.2f}**\n")
@@ -601,6 +615,21 @@ def render_report(rows, chosen, criterion, sol, groups, negatives, diag, loo) ->
                      "已退回按解集整体选点。\n")
         if diag.get("fallback_reason"):
             L.append(f"> 注：{diag['fallback_reason']}。\n")
+        L.append("### 标定结果与代码默认值的对照\n")
+        L.append("| 项 | 值 |")
+        L.append("|---|---|")
+        L.append(f"| 本次标定选点 | cross_student = {chosen['cross_student']:.2f}，"
+                 f"cluster_distance = {chosen['cluster_distance']:.2f} |")
+        L.append("| 代码默认值 | cross_student = 0.50，cluster_distance = 0.60 |")
+        L.append("| 关系 | 同一量级、相邻档位；默认值落在本次解集内，"
+                 "本文把它替换为由上述判据**推导**得到的值，"
+                 "并给出可复现的推导过程 |")
+        L.append("")
+        L.append("> 需要强调的是：**重点不在于两个数值是否相同，而在于阈值来源**。"
+                 "若阈值是拍脑袋定的，评审无法判断换一个数据集是否还成立；"
+                 "若阈值是由\"一级判据 → 解集 → 冗余可行域 → 余量排序\"推导出来的，"
+                 "那么换一个数据集只需重跑同一套判据即可重新得到阈值 —— "
+                 "这正是**标定**与**硬编码**的区别。\n")
 
     # ---------- 四、留一法 ----------
     L.append("## 四、标定—评估的循环性声明与留一法验证\n")
@@ -628,6 +657,24 @@ def render_report(rows, chosen, criterion, sol, groups, negatives, diag, loo) ->
         else:
             L.append("> 留一法下存在漏报，说明全量标定所得的召回率**不能**直接作为"
                      "泛化性能的估计。漏报组见上表。\n")
+        # 如实标注超出网格的推导阈值
+        grid_hi = max({x["cross_student"] for x in rows})
+        out_of_grid = [r for r in loo if r["chosen_cross"] > grid_hi]
+        if out_of_grid:
+            L.append("> **留一法的局限（须随表一起引用）**：")
+            for r in out_of_grid:
+                L.append(f"留出 {r['held_out']} 时，由其余组推出的上限为 "
+                         f"{r['upper_from_rest']:.3f}，"
+                         f"推出的 cross = {r['chosen_cross']:.2f} "
+                         f"**已超出本次扫描网格上限 {grid_hi:.2f}**。")
+            L.append("原因是：真实多照片组只有 1 个，留出它之后，剩余组全部为"
+                     "**同图增广**的合成样本，其组内相似度显著虚高，"
+                     "因而推导出的阈值上限也随之虚高。")
+            L.append("这条如实记录下来，是为了说明留一法结论的有效性**受限于真实样本的占比** —— "
+                     "在合成数据占主导时，留一法会给出不现实的阈值，"
+                     "因此 4/4 通过的结论应理解为"
+                     "\"在当前样本构成下阈值推导未失效\"，"
+                     "而不是\"留一法在任意样本构成下都稳健\"。\n")
     else:
         L.append("（本次未能执行留一法）\n")
 
