@@ -27,6 +27,9 @@ models/
 # ===== 评测用的独立库（audit_recall_test.py 生成，可随时重建） =====
 backend/.eval/
 
+# ===== 复现实验的独立库（audit_repro_dirty_normal.py 生成，可随时重建） =====
+backend/.repro/
+
 # ===== 本地备份 / 临时目录 =====
 _backup_*/
 *_backup_*/
