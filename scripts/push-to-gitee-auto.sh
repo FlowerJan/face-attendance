@@ -4,21 +4,28 @@
 set -uo pipefail
 
 cd "$(dirname "$0")" || exit 1
+REPO_ROOT="$(cd .. && pwd)"
 
-TOKEN_FILE=".gitee-token"
 REMOTE="https://gitee.com/flowerjan10/face-attendance.git"
 BRANCH="master"
 
-if [ ! -f "$TOKEN_FILE" ]; then
-  echo "[FAIL] $TOKEN_FILE 不存在，无法无人值守推送。"
-  echo "       请让用户提供 Gitee 私人令牌（设置 -> 私人令牌 -> projects 权限），"
-  echo "       并写入项目根目录的 $TOKEN_FILE（首行纯令牌文本）。"
-  exit 2
-fi
-
-TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE" | head -n1)"
+# 令牌来源优先级：环境变量 GITEE_TOKEN > 仓库根目录 .gitee-token
+# 只在根目录保留一份明文，避免轮换时漏改 / 泄露面扩大。
+TOKEN="${GITEE_TOKEN:-}"
+TOKEN_FILE=""
 if [ -z "$TOKEN" ]; then
-  echo "[FAIL] $TOKEN_FILE 为空。"
+  TOKEN_FILE="$REPO_ROOT/.gitee-token"
+  if [ ! -f "$TOKEN_FILE" ]; then
+    echo "[FAIL] 未找到 Gitee 令牌。"
+    echo "       请提供 Gitee 私人令牌（设置 -> 私人令牌 -> projects 权限），二选一："
+    echo "         1) 写入仓库根目录的 .gitee-token（首行纯令牌文本）"
+    echo "         2) 设置环境变量 GITEE_TOKEN"
+    exit 2
+  fi
+  TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE" | head -n1)"
+fi
+if [ -z "$TOKEN" ]; then
+  echo "[FAIL] Gitee 令牌为空。"
   exit 2
 fi
 

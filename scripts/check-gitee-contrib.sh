@@ -14,20 +14,27 @@
 set -uo pipefail
 
 cd "$(dirname "$0")" || exit 1
+REPO_ROOT="$(cd .. && pwd)"
 
-TOKEN_FILE=".gitee-token"
 REPO="flowerjan10/face-attendance"
 EXPECT_NAME="FlowerJan10"
 
-if [ ! -f "$TOKEN_FILE" ]; then
-  echo "[FAIL] $TOKEN_FILE 不存在。"
-  echo "       需要 Gitee 私人令牌（设置 -> 私人令牌 -> projects 权限）。"
-  exit 2
-fi
-
-TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE" | head -n1)"
+# 令牌来源优先级：环境变量 GITEE_TOKEN > 仓库根目录 .gitee-token
+TOKEN="${GITEE_TOKEN:-}"
+TOKEN_FILE=""
 if [ -z "$TOKEN" ]; then
-  echo "[FAIL] $TOKEN_FILE 为空。"
+  TOKEN_FILE="$REPO_ROOT/.gitee-token"
+  if [ ! -f "$TOKEN_FILE" ]; then
+    echo "[FAIL] 未找到 Gitee 令牌。"
+    echo "       需要 Gitee 私人令牌（设置 -> 私人令牌 -> projects 权限），二选一："
+    echo "         1) 写入仓库根目录的 .gitee-token（首行纯令牌文本）"
+    echo "         2) 设置环境变量 GITEE_TOKEN"
+    exit 2
+  fi
+  TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE" | head -n1)"
+fi
+if [ -z "$TOKEN" ]; then
+  echo "[FAIL] Gitee 令牌为空。"
   exit 2
 fi
 
