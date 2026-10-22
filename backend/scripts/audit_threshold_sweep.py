@@ -89,12 +89,83 @@ os.environ.setdefault("no_proxy", "127.0.0.1,localhost")
 sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import audit_recall_test as art  # noqa: E402  复用 ground truth 构造与评估口径
-# art 在 import 时把环境变量指向固定的 .eval/，这里改回本次运行的独立目录
-art.EVAL_DIR = EVAL_DIR
+# ★ art 模块在 import 时会无条件把 SQLITE_URL / MILVUS_DB_PATH / FACE_IMG_DIR
+#   覆写回它自己的固定目录 .eval/，导致本次运行实际用的是旧库（学号唯一约束冲突）。
+#   解法：import 期间用 os._Environ 的子类屏蔽这三个 key 的写入，
+#   import 结束后立刻还原原始 os.environ。
+_BLOCKED_ENV = ("SQLITE_URL", "MILVUS_DB_PATH", "FACE_IMG_DIR")
+
+
+class _GuardedEnviron:
+    """代理 os.environ，忽略对指定 key 的写入。
+
+    用途：art 模块在 import 时会无条件把 SQLITE_URL / MILVUS_DB_PATH /
+    FACE_IMG_DIR 覆写回它自己的固定目录 .eval/，导致本次运行实际用的是旧库
+    （表现为学号唯一约束冲突）。import 期间用本代理屏蔽这三个 key 的写入，
+    import 结束后立刻还原原始 os.environ。
+    """
+
+    def __init__(self, real, blocked):
+        self._real = real
+        self._blocked = blocked
+
+    def __setitem__(self, key, value):
+        if key in self._blocked:
+            return
+        self._real[key] = value
+
+    def __getitem__(self, key):
+        return self._real[key]
+
+    def __delitem__(self, key):
+        del self._real[key]
+
+    def __contains__(self, key):
+        return key in self._real
+
+    def __iter__(self):
+        return iter(self._real)
+
+    def __len__(self):
+        return len(self._real)
+
+    def get(self, key, default=None):
+        return self._real.get(key, default)
+
+    def setdefault(self, key, default=None):
+        if key in self._blocked:
+            return default
+        return self._real.setdefault(key, default)
+
+    def update(self, *a, **kw):
+        for k, v in dict(*a, **kw).items():
+            self[k] = v
+
+    def copy(self):
+        return self._real.copy()
+
+    def keys(self):
+        return self._real.keys()
+
+    def values(self):
+        return self._real.values()
+
+    def items(self):
+        return self._real.items()
+
+
+_orig_environ = os.environ
+os.environ = _GuardedEnviron(_orig_environ, _BLOCKED_ENV)
+try:
+    import audit_recall_test as art  # noqa: E402  复用 ground truth 构造与评估口径
+finally:
+    os.environ = _orig_environ
+
+# 再次确保三个路径指向本次运行的独立目录
 os.environ["SQLITE_URL"] = "sqlite:///" + str((EVAL_DIR / "attendance.db").as_posix())
 os.environ["MILVUS_DB_PATH"] = str((EVAL_DIR / "milvus_lite.db").as_posix())
 os.environ["FACE_IMG_DIR"] = str((EVAL_DIR / "uploads" / "faces").as_posix())
+art.EVAL_DIR = EVAL_DIR
 from core.db import SessionLocal, init_db  # noqa: E402
 from core.enums import EnumContainer  # noqa: E402
 from core.face_engine import get_face_app  # noqa: E402
@@ -120,8 +191,9 @@ SAME_STUDENT_FIXED = 0.40
 
 # 标定判据（先写死，见模块 docstring）
 CRITERION_T1 = "召回=100% 且 跨组误报=0 且 负样本误报=0（产出解集）"
-CRITERION_T2 = ("二级判据：面向误报方向的单侧余量最大者"
-                 "（cross 向下、dist 向上为误报风险增加方向）")
+CRITERION_T2 = ("二级判据：在可行域（双通道各自可独立全命中）内，"
+                 "以面向误报方向的单侧余量最大者为先、"
+                 "面向漏报方向单侧余量最大者为次（均归一化）")
 CRITERION_FALLBACK = "误报=0 前提下召回最高者（存在漏报则显式标注）"
 
 REPORT_PATH = BACKEND.parent / "docs" / "audit-threshold-sweep.md"
@@ -174,25 +246,23 @@ def tier1_solution_set(rows: list[dict]) -> list[dict]:
 # ============================================================
 # 二级判据：面向误报方向的单侧余量
 # ============================================================
-def one_sided_margin(r: dict, rows: list[dict]) -> float:
-    """面向**误报方向**的单侧余量（**归一化比例**，无量纲，0~1）。
+def margins(r: dict, rows: list[dict]) -> tuple[float, float]:
+    """返回 (误报侧单侧余量, 漏报侧单侧余量)，均为**归一化比例**（0~1）。
 
-    两个维度的误报风险增加方向：
-      · cross_student 降低  →  更容易把不同的人判为重复  → 误报风险升
-      · cluster_distance 升高 →  更容易把不同的人聚成一簇  → 误报风险升
+    两个维度的方向不对称，必须分别度量：
 
-    因此余量只朝"阈值再往激进方向走一格就会误报"计量，
-    不计入另一方向的失效（漏报由一级判据的平台区边界与二级判据另行处理）。
+      cross_student 维度：
+        · 向下（阈值更低）→ 更容易把不同的人判为重复 → **误报**风险升
+        · 向上（阈值更高）→ 更难把同一人判为重复 → **漏报**风险升
+      cluster_distance 维度（切分阈值，越大切分越松）：
+        · 向上 → 更容易把不同的人聚成一簇 → **误报**风险升
+        · 向下 → 更难把同一人聚成一簇 → **漏报**风险升
 
-    ★ 为什么用**归一化比例**而不是绝对阈值差：
-      cross 方向的网格步长是 0.05，dist 方向是 0.10，两者的绝对距离
-      不可直接比较（初版直接取 min，实测会把两个量纲混在一起）。
-      归一化为「该方向上还能再推进多少比例才会误报」后，
-      两个方向才可比，取 min 才有意义。
-
-    实现：在网格上沿误报方向逐步推进，找到第一个会误报（fp>0 或 neg_fp>0）
-    的档位，余量 = 距该档位的距离 / 该方向网格总跨度。
-    该方向不存在失效点时记为 1.0（等于"可推进到网格边缘仍不误报"）。
+    因此每个维度各有一条误报方向和一条漏报方向。
+    误报余量 = min(距 cross 向下失效边界的距离, 距 dist 向上失效边界的距离)
+    漏报余量 = min(距 cross 向上失效边界的距离, 距 dist 向下失效边界的距离)
+    两者都按各自方向上的网格总跨度归一化（cross 与 dist 步长不同，
+    绝对距离不可直接比较）。该方向网格内无失效点时记为 1.0。
     """
     cs_list = sorted({x["cross_student"] for x in rows})
     cd_list = sorted({x["cluster_distance"] for x in rows})
@@ -201,26 +271,48 @@ def one_sided_margin(r: dict, rows: list[dict]) -> float:
     cs_span = (cs_list[-1] - cs_list[0]) or 1.0
     cd_span = (cd_list[-1] - cd_list[0]) or 1.0
 
-    def fp_at(cs: float, cd: float):
+    def at(cs: float, cd: float):
         for x in rows:
             if x["cross_student"] == cs and x["cluster_distance"] == cd:
                 return x
         return None
 
-    margins = []
-    # 方向 1：cross 向下（更易误报）—— 探到网格下界为止
+    def is_fp(x):
+        return x is not None and (x["fp_pairs"] > 0 or x["neg_fp"] > 0)
+
+    def is_miss(x):
+        return x is not None and x["recall"] < 1.0
+
+    fp_parts, miss_parts = [], []
+
+    # 误报侧：cross 向下
     for k in range(1, cs_i + 1):
-        x = fp_at(cs_list[cs_i - k], r["cluster_distance"])
-        if x is not None and (x["fp_pairs"] > 0 or x["neg_fp"] > 0):
-            margins.append((r["cross_student"] - cs_list[cs_i - k]) / cs_span)
+        x = at(cs_list[cs_i - k], r["cluster_distance"])
+        if is_fp(x):
+            fp_parts.append((r["cross_student"] - cs_list[cs_i - k]) / cs_span)
             break
-    # 方向 2：dist 向上（更易误报）—— 探到网格上界为止
+    # 误报侧：dist 向上
     for k in range(1, len(cd_list) - cd_i):
-        x = fp_at(r["cross_student"], cd_list[cd_i + k])
-        if x is not None and (x["fp_pairs"] > 0 or x["neg_fp"] > 0):
-            margins.append((cd_list[cd_i + k] - r["cluster_distance"]) / cd_span)
+        x = at(r["cross_student"], cd_list[cd_i + k])
+        if is_fp(x):
+            fp_parts.append((cd_list[cd_i + k] - r["cluster_distance"]) / cd_span)
             break
-    return min(margins) if margins else 1.0
+    # 漏报侧：cross 向上
+    for k in range(1, len(cs_list) - cs_i):
+        x = at(cs_list[cs_i + k], r["cluster_distance"])
+        if is_miss(x):
+            miss_parts.append((cs_list[cs_i + k] - r["cross_student"]) / cs_span)
+            break
+    # 漏报侧：dist 向下
+    for k in range(1, cd_i + 1):
+        x = at(r["cross_student"], cd_list[cd_i - k])
+        if is_miss(x):
+            miss_parts.append((r["cluster_distance"] - cd_list[cd_i - k]) / cd_span)
+            break
+
+    fp_margin = min(fp_parts) if fp_parts else 1.0
+    miss_margin = min(miss_parts) if miss_parts else 1.0
+    return fp_margin, miss_margin
 
 
 def pick_by_criterion(rows: list[dict]) -> tuple[dict | None, str, list[dict], dict]:
@@ -239,41 +331,35 @@ def pick_by_criterion(rows: list[dict]) -> tuple[dict | None, str, list[dict], d
             return best, CRITERION_FALLBACK, [], diag
         return None, "标定失败：无任何档位同时满足误报=0", [], diag
 
-    # 二级判据：在解集内按单侧余量排序
-    for r in sol:
-        r["margin"] = one_sided_margin(r, rows)
-
     # ★ 冗余约束（双通道设计意图的守恒）：
-    #   dist 越低，聚类切分越严，聚类通道单独覆盖全部异常组的能力越弱。
-    #   若只按"距误报边界最远"取点，dist 会被压到网格最低档，
-    #   此时聚类通道形同虚设 —— 选出的阈值虽不误报，却丢掉了双通道冗余，
+    #   dist 越低，聚类切分越严，聚类通道单独覆盖全部异常组的能力越弱；
+    #   cross 越高，两两通道单独覆盖全部异常组的能力越弱。
+    #   若只按"距误报边界最远"取点，两个阈值都会被推到各自网格的极端
+    #   （cross 推到最高、dist 推到最低），某一条通道形同虚设 ——
     #   违背"两两相似度 + 层次聚类联合判定"的设计意图。
-    #   故先加一道下界约束：dist 必须不小于「聚类通道可独立全命中」的最低档。
-    cluster_ok = {r["cluster_distance"] for r in sol
-                  if r["cluster_hit"] == r["total_groups"]}
-    if cluster_ok:
-        dist_floor = min(cluster_ok)
-        cand = [r for r in sol if r["cluster_distance"] >= dist_floor]
-        diag["dist_floor"] = dist_floor
-        if cand:
-            sol_rank = cand
-        else:
-            sol_rank = sol
-    else:
-        sol_rank = sol
+    #   故可行域要求：**两条通道各自都能独立全命中**全部异常组。
+    def independently_full(r: dict) -> bool:
+        return (r["pair_hit"] == r["total_groups"]
+                and r["cluster_hit"] == r["total_groups"])
 
-    finite = [r for r in sol_rank if r["margin"] != float("inf")]
-    if finite:
-        best = max(finite, key=lambda r: r["margin"])
-        diag["margin_finite"] = True
+    redundant = [r for r in sol if independently_full(r)]
+    diag["redundant_count"] = len(redundant)
+    cand = redundant if redundant else sol
+    if redundant:
+        dist_floor = min(r["cluster_distance"] for r in redundant)
+        cross_ceil = max(r["cross_student"] for r in redundant)
+        diag["dist_floor"] = dist_floor
+        diag["cross_ceil"] = cross_ceil
     else:
-        # 解集内所有档位的误报方向都无失效点（网格内不存在误报）
-        # → 退回"在解集内取漏报侧余量最大者"，即离漏报边界最远
-        for r in sol_rank:
-            r["margin"] = miss_side_margin(r, rows)
-        best = max(sol_rank, key=lambda r: r["margin"])
-        diag["margin_finite"] = False
-        diag["fallback_reason"] = "网格内不存在误报档位，二级判据退回漏报侧余量"
+        diag["no_redundant"] = True
+
+    # 二级判据：在可行域内按余量排序
+    #   主序：误报方向单侧余量降序（误报后果更重，优先远离误报边界）
+    #   次序：漏报方向单侧余量降序（并列时取更远离漏报边界者）
+    for r in cand:
+        r["fp_margin"], r["miss_margin"] = margins(r, rows)
+    best = max(cand, key=lambda r: (r["fp_margin"], r["miss_margin"]))
+    diag["margin_finite"] = True
     return best, CRITERION_T1 + " + " + CRITERION_T2, sol, diag
 
 
@@ -497,13 +583,22 @@ def render_report(rows, chosen, criterion, sol, groups, negatives, diag, loo) ->
         L.append(f"| 靠两两相似度命中的组 | {chosen['pair_hit']} |")
         L.append(f"| 靠层次聚类命中的组 | {chosen['cluster_hit']} |")
         mg = chosen.get("margin")
-        L.append(f"| 面向误报方向的单侧余量（归一化） | "
-                 f"{'—' if mg is None else f'{mg:.3f}'} |")
+        fpm = chosen.get("fp_margin")
+        msm = chosen.get("miss_margin")
+        L.append("| 面向误报方向的单侧余量（归一化） | "
+                 + ("—" if fpm is None else f"{fpm:.3f}") + " |")
+        L.append("| 面向漏报方向的单侧余量（归一化） | "
+                 + ("—" if msm is None else f"{msm:.3f}") + " |")
         L.append("")
         if diag.get("dist_floor") is not None:
-            L.append(f"> **冗余约束**：聚类通道可独立全命中的最低 cluster_distance "
-                     f"= {diag['dist_floor']:.2f}，选点限定在此下界之上，"
-                     "以保留「两两相似度 + 层次聚类」双通道的冗余能力。\n")
+            L.append(f"> **冗余约束**：可行域要求「两两通道」与「聚类通道」"
+                     f"**各自**都能独立全命中全部异常组。"
+                     f"在该约束下 cluster_distance ≥ {diag['dist_floor']:.2f}，"
+                     f"cross_student ≤ {diag['cross_ceil']:.2f}，"
+                     "从而两个阈值都不会被推到网格极端、某一条通道形同虚设。\n")
+        if diag.get("no_redundant"):
+            L.append("> 注：解集中不存在双通道各自独立的档位，冗余约束无法满足，"
+                     "已退回按解集整体选点。\n")
         if diag.get("fallback_reason"):
             L.append(f"> 注：{diag['fallback_reason']}。\n")
 
@@ -680,7 +775,8 @@ def main() -> int:
                   f"cluster_distance={chosen['cluster_distance']:.2f} "
                   f"recall={chosen['recall'] * 100:.0f}% fp={chosen['fp_pairs']} "
                   f"neg_fp={chosen['neg_fp']} "
-                  f"margin={chosen.get('margin')}")
+                  f"fp_margin={chosen.get('fp_margin')} "
+                  f"miss_margin={chosen.get('miss_margin')}")
         else:
             print("[calib] FAILED")
 
