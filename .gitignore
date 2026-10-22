@@ -30,6 +30,9 @@ backend/.eval/
 # ===== 复现实验的独立库（audit_repro_dirty_normal.py 生成，可随时重建） =====
 backend/.repro/
 
+# ===== 本地每日运行记录（daily_run_stats.py 自动生成，属个人流水账不入库） =====
+每日清单.md
+
 # ===== 本地备份 / 临时目录 =====
 _backup_*/
 *_backup_*/
