@@ -115,6 +115,7 @@ from api.faces import router as faces_router
 from api.stats import router as stats_router
 from api.audit import router as audit_router
 from api.notices import router as notices_router, ws_router
+from api.attendance import router as attendance_router
 from api.system import router as system_router
 
 app.include_router(system_router)
@@ -124,6 +125,7 @@ app.include_router(faces_router)
 app.include_router(stats_router)
 app.include_router(audit_router)
 app.include_router(notices_router)
+app.include_router(attendance_router)
 app.include_router(ws_router)
 
 

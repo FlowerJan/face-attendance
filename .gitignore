@@ -20,8 +20,11 @@ backend/uploads/faces/
 backend/storage/faces/
 
 # ===== 模型权重（buffalo_l 约 600MB，可用 scripts/download_model.py 重建） =====
-backend/models/
-models/
+# 注意：backend/models/ 同时是 Python 包（student.py/face.py/attendance.py 等 ORM 模型），
+# 不能整目录忽略，只忽略权重子目录/压缩包；*.onnx 兜底单文件权重。
+backend/models/buffalo_l/
+backend/models/buffalo_l.zip
+/models/
 *.onnx
 
 # ===== 评测用的独立库（audit_recall_test.py 生成，可随时重建） =====

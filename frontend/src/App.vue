@@ -12,6 +12,7 @@
     <el-container>
       <el-aside width="200px" class="aside">
         <el-menu :default-active="route.path" router>
+          <el-menu-item index="/attendance">人脸签到</el-menu-item>
           <el-menu-item index="/students">学生管理</el-menu-item>
           <el-menu-item index="/faces">人脸录入</el-menu-item>
           <el-menu-item index="/stats">信息汇总</el-menu-item>

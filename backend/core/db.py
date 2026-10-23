@@ -57,5 +57,5 @@ def get_db():
 def init_db():
     """Create all tables. Only for dev/ops, not for runtime request path."""
     # import models so they register on Base.metadata
-    from models import student, face, notice  # noqa: F401
+    from models import student, face, notice, attendance  # noqa: F401
     Base.metadata.create_all(bind=engine)
