@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, Query, UploadFile, File
 from sqlalchemy.orm import Session
 
-from api.deps import get_db_session
+from api.deps import get_db_session, read_image_upload
 from service import attendance_service
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/attendance", tags=["attendance"])
 
 @router.post("/checkin")
 async def checkin(file: UploadFile = File(...), db: Session = Depends(get_db_session)):
-    image_bytes = await file.read()
+    image_bytes = await read_image_upload(file)
     return attendance_service.checkin(db, image_bytes)
 
 

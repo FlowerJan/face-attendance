@@ -10,6 +10,7 @@ import json
 import os
 import random
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -68,12 +69,13 @@ def synth_face(seed: int) -> bytes:
     return cv2.imencode(".jpg", img)[1].tobytes()
 
 
-def multipart(field: str, filename: str, content: bytes) -> tuple[bytes, dict]:
+def multipart(field: str, filename: str, content: bytes,
+              content_type: str = "image/jpeg") -> tuple[bytes, dict]:
     boundary = "----e2eboundary" + str(random.randint(1000, 9999))
     body = b"".join([
         f"--{boundary}\r\n".encode(),
         f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'.encode(),
-        b"Content-Type: image/jpeg\r\n\r\n",
+        f"Content-Type: {content_type}\r\n\r\n".encode(),
         content,
         f"\r\n--{boundary}--\r\n".encode(),
     ])
@@ -358,6 +360,109 @@ def quality_gate_phase() -> None:
     call("DELETE", f"/api/students/{sid}")
 
 
+def attendance_phase(enums: dict) -> None:
+    """签到闭环端到端：建档 -> 录入 -> 签到 -> 幂等 -> 记录/汇总 -> 上传守卫 -> 清理。
+
+    注意幂等复检必须用同一张图（相似度 1.0）：
+    同人不同照片的相似度可能落在识别阈值 0.50 之下（论文 5.6 的已知边界），
+    用它测幂等会让用例结果依赖照片对，不稳定。
+    """
+    print("\n[10] 人脸签到闭环")
+    if not os.path.isdir(SAMPLE_DIR):
+        check("签到闭环（跳过：缺 scripts/sample_faces/）", True, "skipped")
+        return
+    files = sorted(f for f in os.listdir(SAMPLE_DIR) if f.lower().endswith(IMG_EXT))
+    if not files:
+        check("签到闭环（跳过：样本目录为空）", True, "skipped")
+        return
+    today = time.strftime("%Y-%m-%d")
+
+    created = call("POST", "/api/students", {
+        "student_no": f"AT{random.randint(100000, 999999)}",
+        "name": "签到测试", "gender": "男",
+        "class_name": (enums.get("classes") or ["智造本2024-1班"])[0],
+        "major": (enums.get("majors") or ["计算机科学与技术"])[0],
+        "enroll_year": 2024,
+    })
+    sid = (created.get("data") or {}).get("id")
+    if not sid:
+        check("签到闭环（建档失败）", False, str(created.get("message"))[:80])
+        return
+    stu_no = (created.get("data") or {}).get("student_no")
+
+    with open(os.path.join(SAMPLE_DIR, files[0]), "rb") as fp:
+        original = fp.read()
+    body, hdrs = multipart("file", files[0], original)
+    enr = call("POST", f"/api/students/{sid}/faces", form=body, headers=hdrs)
+    if (enr.get("data") or {}).get("enrolled") is not True:
+        check("签到用例（录入失败，无法继续）", False,
+              (enr.get("data") or {}).get("reason") or enr.get("message") or "")
+        call("DELETE", f"/api/students/{sid}")
+        return
+
+    # ---- 首次签到：识别成功并落库 ----
+    # 注意：演示库通常已含同一样本图（相似度 1.0 打平），1:N 检索可能命中
+    # 演示学生或本用例新建学生——两者都是合法行为（重复注册歧义由审计抓）。
+    # 因此这里只断言「识别成功 + 记录自洽」，不断言 duplicate 与具体学号。
+    r1 = call("POST", "/api/attendance/checkin", form=body, headers=hdrs)
+    d1 = r1.get("data") or {}
+    rec = d1.get("record") or {}
+    check("签到识别成功并写入记录",
+          r1.get("code") == 0 and d1.get("recognized") is True
+          and bool(rec.get("id")) and bool(rec.get("student_no")),
+          json.dumps({k: d1.get(k) for k in ("recognized", "duplicate", "reason")},
+                     ensure_ascii=False))
+
+    # ---- 重复签到：幂等返回既有记录（id 不变；duplicate 取决于命中者是否已签）----
+    r2 = call("POST", "/api/attendance/checkin", form=body, headers=hdrs)
+    d2 = r2.get("data") or {}
+    check("重复签到幂等（返回同一条记录 id）",
+          d2.get("recognized") is True
+          and (d2.get("record") or {}).get("id") == rec.get("id"),
+          json.dumps({k: d2.get(k) for k in ("recognized", "duplicate")}, ensure_ascii=False))
+
+    # ---- 记录与汇总 ----
+    records = call("GET", f"/api/attendance/records?date={today}&page=1&page_size=50")
+    items = (records.get("data") or {}).get("items") or []
+    check("GET /api/attendance/records 含签到返回的学生",
+          records.get("code") == 0 and any(it.get("student_no") == rec.get("student_no") for it in items),
+          f"total={(records.get('data') or {}).get('total')} matched={rec.get('student_no')}")
+
+    summary = call("GET", f"/api/attendance/summary?date={today}")
+    sd = summary.get("data") or {}
+    check("GET /api/attendance/summary 已签人数 >= 1",
+          summary.get("code") == 0 and int(sd.get("checked_count") or 0) >= 1
+          and int(sd.get("total_students") or 0) >= int(sd.get("checked_count") or 0),
+          json.dumps(sd, ensure_ascii=False))
+
+    # ---- 负例：无脸图 -> recognized=False ----
+    blank = np.zeros((200, 200, 3), dtype=np.uint8)
+    blank_body, blank_hdrs = multipart("file", "blank.jpg", cv2.imencode(".jpg", blank)[1].tobytes())
+    r3 = call("POST", "/api/attendance/checkin", form=blank_body, headers=blank_hdrs)
+    d3 = r3.get("data") or {}
+    check("无脸图签到被拒（recognized=False 且无副作用）",
+          r3.get("code") == 0 and d3.get("recognized") is False,
+          json.dumps({k: d3.get(k) for k in ("recognized", "reason")}, ensure_ascii=False)[:90])
+
+    # ---- 上传守卫：非图片类型 -> 415；超限 -> 413 ----
+    bad_body, bad_hdrs = multipart("file", "evil.txt", b"not an image at all",
+                                   content_type="text/plain")
+    r4 = call("POST", "/api/attendance/checkin", form=bad_body, headers=bad_hdrs)
+    check("非图片类型被 415 拒绝", r4.get("code") == 415, f"code={r4.get('code')}")
+
+    big = b"x" * (5 * 1024 * 1024 + 1)
+    big_body, big_hdrs = multipart("file", "big.jpg", big)
+    r5 = call("POST", "/api/attendance/checkin", form=big_body, headers=big_hdrs)
+    check("超过 5MB 被 413 拒绝", r5.get("code") == 413, f"code={r5.get('code')}")
+
+    call("DELETE", f"/api/students/{sid}")  # 签到记录随外键级联清理
+    gone = call("GET", f"/api/attendance/records?date={today}&page=1&page_size=50")
+    left = (gone.get("data") or {}).get("items") or []
+    check("删除学生后签到记录级联清理",
+          gone.get("code") == 0 and not any(it.get("student_no") == stu_no for it in left),
+          f"剩余记录={len(left)}")
+
+
 def main() -> None:
     print("=" * 66)
     print("学生刷脸考勤系统 · 第一阶段 端到端联调")
@@ -450,6 +555,8 @@ def main() -> None:
     real_face_phase(enums)
 
     quality_gate_phase()
+
+    attendance_phase(enums)
 
     print("\n" + "=" * 66)
     print(f"结果：通过 {len(passed)} 项，失败 {len(failed)} 项")
