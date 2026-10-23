@@ -10,7 +10,8 @@
 
 跑法：
     cd backend
-    .venv\\Scripts\\python.exe test/test_quality_gate.py
+    .venv\\Scripts\\python.exe -m pytest test/test_quality_gate.py -v   # pytest 收集
+    .venv\\Scripts\\python.exe test/test_quality_gate.py                # 手动模式（逐项打印）
 """
 import os
 import sys
@@ -204,6 +205,12 @@ def run_tests() -> Checker:
     )
 
     return c
+
+
+def test_quality_gate_rules():
+    """pytest 入口：run_tests() 逐项断言，失败时输出里能看到具体 FAIL 行。"""
+    c = run_tests()
+    assert c.failed == 0, f"质量门控有 {c.failed} 项断言失败（详见上方 FAIL 行）"
 
 
 def main() -> int:
