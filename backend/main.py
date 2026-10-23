@@ -73,6 +73,24 @@ app.add_middleware(
 # 若挂载成 "/uploads" 会解析到 uploads/faces/faces/... 导致图片全部 404
 app.mount("/uploads/faces", StaticFiles(directory=str(settings.FACE_IMG_DIR)), name="uploads")
 
+# 本地托管的 Swagger UI 静态资源：
+# 默认 /docs 从公网 CDN（unpkg）拉 swagger-ui 的 js/css，离线/被墙时整页空白。
+# 资源已下载到 backend/static/swagger/，改由本服务自己出。
+from fastapi.openapi.docs import get_swagger_ui_html  # noqa: E402
+
+app.mount("/static", StaticFiles(directory=str(settings.BASE_DIR / "static")), name="static")
+
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui():
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title=app.title + " - Swagger UI",
+        oauth2_redirect_url=None,
+        swagger_js_url="/static/swagger/swagger-ui-bundle.js",
+        swagger_css_url="/static/swagger/swagger-ui.css",
+    )
+
 
 # ---- 统一异常响应：始终返回 {"code": non-zero, "message": ..., "data": null} ----
 # 否则 FastAPI 默认返回 {"detail": ...}，前端拦截器拿不到可读 message
