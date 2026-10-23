@@ -7,7 +7,7 @@ from service import cluster_service
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
 
-@router.get("/duplicates")
+@router.get("/duplicates", summary="脸库审计：双通道查重（脏数据 + 重复注册 + 可疑簇）")
 def audit_duplicates(
     same_student: float = Query(cluster_service.SAME_STUDENT_THRESHOLD, ge=0.0, le=1.0,
                                 description="同一学生相似度下限(低于则判脏数据)"),
@@ -30,7 +30,7 @@ def audit_duplicates(
     )
 
 
-@router.get("/similarity-matrix")
+@router.get("/similarity-matrix", summary="全库两两相似度矩阵（用于标定阈值）")
 def similarity_matrix(db: Session = Depends(get_db_session)):
     """返回全部向量的余弦相似度矩阵（用于阈值标定 / 调参）。"""
     return cluster_service.similarity_matrix(db)

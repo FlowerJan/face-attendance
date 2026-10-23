@@ -55,7 +55,23 @@ async def lifespan(app: FastAPI):
     print("[shutdown] cleaning up...")
 
 
-app = FastAPI(title="Face Attendance System", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="学生刷脸考勤系统 · 后端接口文档",
+    version="1.0.0",
+    lifespan=lifespan,
+    description="人脸签到 / 学生管理 / 人脸录入 / 脸库审计 / 统计 / 公告。"
+                "可在各接口点 Try it out 直接发请求调试。",
+    openapi_tags=[
+        {"name": "system", "description": "系统健康与运行状态"},
+        {"name": "attendance", "description": "人脸签到：抓拍识别、当日记录、签到率"},
+        {"name": "students", "description": "学生档案增删改查与 CSV 导入"},
+        {"name": "faces", "description": "人脸录入：走质量门控后入库（磁盘+向量库+SQLite）"},
+        {"name": "stats", "description": "汇总统计：人数、人脸覆盖、条数口径"},
+        {"name": "audit", "description": "脸库审计：双通道查重（两两相似度 + 聚类）"},
+        {"name": "notices", "description": "公告管理与 WebSocket 实时推送"},
+        {"name": "enums", "description": "班级/专业枚举"},
+    ],
+)
 
 # CORS
 app.add_middleware(

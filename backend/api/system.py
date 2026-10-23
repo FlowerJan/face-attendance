@@ -13,13 +13,13 @@ from core.ws_manager import ws_manager
 router = APIRouter(prefix="/api", tags=["system"])
 
 
-@router.get("/health")
+@router.get("/health", summary="健康检查")
 def health():
     """存活探针，供联调脚本 / 前端健康检查使用。"""
     return {"code": 0, "message": "ok", "data": {"status": "up"}}
 
 
-@router.get("/system/status")
+@router.get("/system/status", summary="运行时状态（向量库 / 模型 / WebSocket 在线数）")
 def system_status():
     """运行时状态：向量库后端与规模、人脸模型加载情况、WS 在线数。"""
     backend = "unavailable"
