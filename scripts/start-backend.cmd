@@ -1,4 +1,6 @@
 @echo off
+REM UTF-8 代码页：uvicorn 日志与启动提示含中文，默认 GBK 下会乱码
+chcp 65001 >nul
 REM Start backend (FastAPI) on port 8000
 REM %~dp0 是本脚本所在目录（scripts\），backend 在项目根目录下，故需 ..\ 回一级
 cd /d "%~dp0..\backend"

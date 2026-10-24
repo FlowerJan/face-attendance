@@ -1,4 +1,6 @@
 @echo off
+REM UTF-8 代码页：npm/vite 输出与中文提示，默认 GBK 下会乱码
+chcp 65001 >nul
 REM Start frontend (Vite) on port 5173
 REM %~dp0 是本脚本所在目录（scripts\），frontend 在项目根目录下，故需 ..\ 回一级
 cd /d "%~dp0..\frontend"
