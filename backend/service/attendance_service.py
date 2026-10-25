@@ -27,6 +27,16 @@ _quality_gate = QualityGate()
 # 局限：该阈值尚未像审计阈值那样做过网格标定，属于待办（见 README 已知事项）。
 CHECKIN_THRESHOLD = 0.50
 
+# 识别余量告警线：第一名与「另一个人」的相似度差距小于该值时，
+# 说明画面里这个人跟库里两个人都不太分得开，判给谁都不可靠。
+#   过阈值只证明"像某个人"，不证明"只像这一个人"——
+#   长相相近 / 同一人多次录入时，top1 与 top2 会咬得很紧，
+#   此时 0.50 这道闸形同虚设（两个都过），必须单独提示人工复核。
+# 取 0.10：与审计标定的异人上限 0.15 同源，留一点余量不与之重叠。
+# 注意：不因此拒绝签到——出勤现场拒绝的代价（漏签）大于存疑记录的代价，
+#   只在返回里标记 ambiguous，由教师端决定是否复核。
+MARGIN_WARN = 0.10
+
 
 def checkin(db: Session, image_bytes: bytes) -> dict:
     """Full check-in pipeline. Never raises; returns unified {code, data}."""
@@ -62,6 +72,7 @@ def checkin(db: Session, image_bytes: bytes) -> dict:
 
     best = hits[0] if hits else None
     best_similarity = float(best["similarity"]) if best else -1.0
+    margin = _identify_margin(hits)
     if best is None or best_similarity < CHECKIN_THRESHOLD:
         return {"code": 0, "data": {
             "recognized": False,
@@ -86,6 +97,7 @@ def checkin(db: Session, image_bytes: bytes) -> dict:
             "recognized": True,
             "duplicate": True,
             "record": _serialize(existing, student),
+            **_margin_fields(margin),
         }}
 
     record = attendance_repo.create_record(
@@ -95,7 +107,41 @@ def checkin(db: Session, image_bytes: bytes) -> dict:
         "recognized": True,
         "duplicate": False,
         "record": _serialize(record, student),
+        **_margin_fields(margin),
     }}
+
+
+def _identify_margin(hits: list[dict]) -> float | None:
+    """识别余量 = top1 相似度 − 与 top1 **不同人**的最高相似度。
+
+    为什么要跳过同一个人的其他底片：
+        同一学生录入多张时，top2 往往就是他自己的另一张脸，
+        这时的"第二名"不构成歧义，用它算余量会把正常签到全标成可疑。
+
+    Returns:
+        None 表示库中只有一个人的底片，无从比较（不做歧义判定）。
+    """
+    if len(hits) < 2:
+        return None
+    top_student = hits[0].get("student_id")
+    second = next((h for h in hits[1:] if h.get("student_id") != top_student), None)
+    if second is None:
+        return None
+    return round(float(hits[0]["similarity"]) - float(second["similarity"]), 4)
+
+
+def _margin_fields(margin: float | None) -> dict:
+    """把余量转成 API 字段：可疑时额外给出可直接展示的提示语。"""
+    if margin is None:
+        return {"margin": None, "ambiguous": False}
+    if margin >= MARGIN_WARN:
+        return {"margin": margin, "ambiguous": False}
+    return {
+        "margin": margin,
+        "ambiguous": True,
+        "warning": f"识别余量偏小（{margin:.4f} < {MARGIN_WARN}），"
+                   f"存在相似人脸，建议人工复核",
+    }
 
 
 def list_records(db: Session, checkin_date: str, page: int, page_size: int) -> dict:
