@@ -528,6 +528,42 @@ cd backend
 .venv\Scripts\python.exe test\test_quality_gate.py
 ```
 
+### 八·补·三：阈值基线对照（默认阈值 vs 标定值）
+
+脚本 **`backend/scripts/audit_baseline_compare.py`**（dirty / normal 各起一个进程）：
+
+```bat
+cd backend
+.venv\Scripts\python.exe scripts\audit_baseline_compare.py --scenario dirty
+.venv\Scripts\python.exe scripts\audit_baseline_compare.py --scenario normal
+```
+
+网格扫描回答的是「哪个档位最好」，但它不回答「**如果什么都不做会怎样**」。
+`15 对全部检出` 是个绝对值，没有参照系——不知道这 15 是标定挣来的，还是数据本来就简单。
+所以把常见默认阈值拉到同一份数据上跑一遍：
+
+| cross_student | 脏库检出 | 正常库误报 | 说明 |
+|---:|---:|---:|---|
+| **0.80** | **1 / 15** | 0 | 网上资料对人脸识别最常见的推荐值 |
+| 0.70 | 3 / 15 | 0 | |
+| 0.60 | 9 / 15 | 0 | |
+| 0.50 | 14 / 15 | 0 | 本项目初版写死的值 |
+| 0.45 | 14 / 15 | 0 | |
+| **0.40** | **15 / 15** | 0 | ★ 部署值 |
+| 0.35 | 15 / 15 | 0 | |
+| 0.30 | 15 / 15 | 0 | |
+
+三点结论：
+
+1. **常见默认阈值 0.80 在这份数据上基本等于关掉审计**——15 对重复注册只检出 1 对，漏 14 对。
+   原因是 0.8 针对的是未归一化向量或别的模型，套到已归一化的 ArcFace 上永远越不过；
+2. **正常库从 0.80 降到 0.30 全程零误报**，说明在这份数据上降阈值是"纯赚"，
+   标定值不是拿误报换召回的妥协；
+3. **0.40 是召回饱和点中最保守的一档**：0.40 / 0.35 / 0.30 都是 15 对，
+   按"并列时取余量最大者"的规则选 0.40——离异人分布最远，最不容易被新数据推翻。
+
+原始数据：`docs/verify-log/audit_baseline_dirty.json`、`docs/verify-log/audit_baseline_normal.json`。
+
 ### 八·补·二：接口压测（50 并发）
 
 脚本位置 **`backend/scripts/bench_api.py`**（注意在 `backend/` 下，不是仓库根目录的 `scripts/`）：

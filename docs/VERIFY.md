@@ -29,6 +29,8 @@
 | 自动化合计 | **93 项**（25 + 68） | 上两行相加 | — |
 | REST 接口 | 25 个 + 1 WebSocket | `grep -c "@router\.\(get\|post\|put\|delete\|patch\)" backend/api/*.py` | — |
 | 审计阈值 | cross_student 0.40 / cluster_distance 0.60 | `backend/service/cluster_service.py` | — |
+| 脏库审计召回 | 15/15（阈值 0.40）；默认阈值 0.80 时仅 1/15 | `scripts\audit_baseline_compare.py --scenario dirty` | `docs/verify-log/audit_baseline_dirty.json` |
+| 正常库审计误报 | 0（0.80→0.30 全程为零） | `scripts\audit_baseline_compare.py --scenario normal` | `docs/verify-log/audit_baseline_normal.json` |
 | 业务接口压测 | 50 并发 P95 121 ms / 348 QPS / 零错误 | `cd backend && .venv\Scripts\python.exe scripts\bench_api.py --concurrency 50` | `backend/scripts/bench_result.json` |
 
 单测各文件明细（合计 25）：
