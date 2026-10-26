@@ -519,6 +519,45 @@ cd backend
 .venv\Scripts\python.exe test\test_quality_gate.py
 ```
 
+### 八·补·二：接口压测（50 并发）
+
+```bat
+cd backend
+.venv\Scripts\python.exe scripts\bench_api.py --concurrency 50
+```
+
+压测刻意**分两组**，因为混在一起报"平均响应 xx ms"是自欺欺人 ——
+平均数是被轻接口拉低的，而真正决定系统容量的是推理接口。
+
+**A 组 · 纯业务接口**（无模型推理，瓶颈在 SQLite 与序列化）— 并发 50：
+
+| 接口 | P50 | P95 | P99 | 错误 | 吞吐 |
+|---|---:|---:|---:|---:|---:|
+| `GET /api/health` | 10.1 ms | 14.8 ms | 15.9 ms | 0 | 1140 QPS |
+| `GET /api/students`（分页） | 91.4 ms | 121.3 ms | 123.1 ms | 0 | 348 QPS |
+| `GET /api/attendance/summary` | 51.8 ms | 67.9 ms | 69.2 ms | 0 | 513 QPS |
+
+**B 组 · 含模型推理**（SCRFD 检测 + ArcFace 前向，瓶颈在 CPU）— 单机 CPU 推理：
+
+| 接口 | 并发 1 | 并发 10 (P95) | 并发 50 |
+|---|---:|---:|---|
+| `POST /api/faces/preview` | 1547 ms | 18247 ms | 超时（>60 s） |
+| `POST /api/attendance/checkin` | 1735 ms | 17131 ms | 超时（>60 s） |
+| `GET /api/audit/duplicates` | 110 ms | 108.7 ms | 45008 ms |
+
+**结论与口径**：
+
+1. 业务接口在 50 并发下 **P95 ≤ 121 ms、零错误**，这是可以直接对外承诺的数字。
+2. 含推理的接口**单请求 1.5~1.7 s，实测容量约 0.65 QPS**。50 并发不是死锁，
+   是排队：50 × 1.5 s = 75 s 超过了 60 s 的客户端超时 —— 请求在线程池里等着，
+   不是框架崩了。定位依据是并发 1 的基线与并发 10 的梯度完全吻合。
+3. 因此**本系统不适合高并发推理场景**，也不需要：单机演示形态下一个教室一个摄像头，
+   并发需求 ≈ 1。真要扩容，方向是把推理拆到独立进程池 / 加队列削峰 / 换 GPU，
+   而不是调 Web 框架参数。
+
+> 只报 A 组属于选择性呈现 —— 两组差 495 倍，藏掉 B 组就等于没测。
+> 原始数据随仓库留存：`backend/scripts/bench_result.json`（压测时自动覆盖）。
+
 ---
 
 ## 八·补：技术笔记
