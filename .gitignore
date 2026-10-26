@@ -14,6 +14,8 @@ dist/
 
 # ===== 本项目运行时产物 =====
 backend/attendance.db
+backend/attendance.db-wal
+backend/attendance.db-shm
 backend/milvus_lite.db/
 backend/milvus_data/
 backend/uploads/faces/

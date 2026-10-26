@@ -31,7 +31,28 @@
 | 审计阈值 | cross_student 0.40 / cluster_distance 0.60 | `backend/service/cluster_service.py` | — |
 | 脏库审计召回 | 15/15（阈值 0.40）；默认阈值 0.80 时仅 1/15 | `scripts\audit_baseline_compare.py --scenario dirty` | `docs/verify-log/audit_baseline_dirty.json` |
 | 正常库审计误报 | 0（0.80→0.30 全程为零） | `scripts\audit_baseline_compare.py --scenario normal` | `docs/verify-log/audit_baseline_normal.json` |
-| 业务接口压测 | 50 并发 P95 121 ms / 348 QPS / 零错误 | `cd backend && .venv\Scripts\python.exe scripts\bench_api.py --concurrency 50` | `backend/scripts/bench_result.json` |
+| 业务接口压测（读为主） | 50 并发 P95 119 ms / 304 QPS / 零错误 | `cd backend && .venv\Scripts\python.exe scripts\bench_api.py --concurrency 50` | `backend/scripts/bench_result.json` |
+| SQLite 并发写（出厂默认） | 50 并发 P95 ≈ 2.2 s / ≈ 190 TPS | `cd backend && .venv\Scripts\python.exe scripts\bench_sqlite_write.py` | `docs/verify-log/bench_sqlite_write.json` |
+| SQLite 并发写（开 WAL 后） | 50 并发 P95 ≈ 0.28 s / ≈ 420 TPS | 同上（脚本内自带 A/B 对照） | 同上 |
+
+### 性能类数字的限定语（写简历前必读）
+
+性能数字脱离硬件与数据量就是空话。以下三条是对外引用**必须同时带上**的限定语：
+
+| 限定语 | 本项目实测情况 |
+|---|---|
+| **机器** | Intel i5-13500H（12 核 16 线程）/ 16 GB / Windows 11；服务与压测脚本同机（会互相抢 CPU） |
+| **数据量** | 压测时库内仅 28 名学生 / 12 张人脸 / 3 条考勤（52 KB）。**不代表大数据量下的表现** |
+| **读写比例** | A 组压测全是 GET；写路径单独一层（SQLite 并发写，见上两行） |
+
+> 正确写法：本机、小数据量、读为主的业务接口，50 并发 P95 ≤ 120 ms。
+> 错误写法：接口 P95 120 ms、300 QPS（少了任何一个限定语都可能被当场问穿）。
+
+### 未经实机验证的东西（不要对外声称）
+
+| 产物 | 状态 |
+|---|---|
+| `Dockerfile` / `docker-compose.yml` | **编写环境未安装 Docker，尚未 `docker build` 验证**。最可能的失败点：`insightface` 源码编译、`opencv-python` 缺 GL 库、模型源不通 |
 
 单测各文件明细（合计 25）：
 

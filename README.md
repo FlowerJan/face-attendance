@@ -34,7 +34,7 @@ FastAPI + Vue 3 全栈实现，覆盖**六大模块**：
 |---|---|---|---|---|
 | ![](docs/demo-quality/q1-太小拒绝.png) | ![](docs/demo-quality/q2-多人拒绝.png) | ![](docs/demo-quality/q3-过暗拒绝.png) | ![](docs/demo-quality/q4-模糊拒绝.png) | ![](docs/demo-quality/q5-正常通过.png) |
 
-## 项目亮点（四条）
+## 项目亮点（五条）
 
 1. **三处存储的写入一致性与级联删除**：一次人脸录入要同时写磁盘原图、SQLite 元数据、Milvus 向量。
    这三个地方没有事务可用，**写入中途失败会留下「有图有记录但检索不到」的半截数据且不会自愈**，
@@ -50,7 +50,12 @@ FastAPI + Vue 3 全栈实现，覆盖**六大模块**：
    本项目在检测与入库之间加了 7 条规则的质量门控（尺寸/多人/置信度/侧倾/姿态/亮度/清晰度），
    拒绝时返回**可执行的**中文提示（"光照不足，请开灯"而不是"图片不合格"），脏图不落库。
 4. **零外部服务依赖就能跑**：Milvus Lite 以本地文件形式提供向量检索（HNSW + COSINE），
-   搭配 SQLite，整机不需要装任何数据库服务即可启动演示。
+   搭配 SQLite，整机不需要装任何数据库服务即可启动演示；另提供 `Dockerfile` +
+   `docker-compose.yml`（见「三、启动方式」，注意尚未实机构建验证）。
+5. **单文件数据库的并发写不是玄学，是被量出来的**：SQLite 出厂用 rollback journal，
+   同一时刻只允许一个写事务。50 并发写实测 P95 **≈ 2.2 s**；开启 WAL + busy_timeout 后
+   **≈ 0.28 s**（约 8 倍），写吞吐 190 → 420 TPS。关键是失败形态**不报错只涨延迟**，
+   读压测永远发现不了（详见八·补·四）。
 
 ---
 
@@ -221,6 +226,29 @@ scripts\start-backend.cmd
 > 若旧后端没退干净，新进程会报 `DataDirLockedError / Open local milvus failed`。
 > 解决办法：`netstat -ano | findstr :8000` 找到 PID 后 `taskkill /F /PID <pid>`。
 > 另外 `scripts/seed_demo.py` 需要先停掉后端再运行。
+
+### Docker 启动（一条命令起后端）
+
+```bash
+docker compose up -d        # 首次会下载约 600MB 的人脸模型
+docker compose logs -f api  # 看到 /api/health  healthcheck healthy 即就绪
+```
+
+打开 <http://localhost:8000/docs> 验证。停止：`docker compose down`（卷保留，模型不会重下）。
+
+三个取舍写在 `Dockerfile` 注释里，这里只说结论：
+
+1. **只容器化后端**。前端是 Vite 静态站，走 `npm run build` + nginx 是另一条链路，
+   塞进同一镜像只会把关注点搅在一起。
+2. **模型不烤进镜像**。buffalo_l 约 600MB，且不在 Git 仓库内；改为 entrypoint 首次启动下载 +
+   `insightface-models` 命名卷缓存，重建容器不用重传。
+3. **编译依赖用完即删**。`insightface` 在 PyPI 上是源码分发（含 Cython/C++ 扩展），
+   slim 镜像没编译器，所以先装 `build-essential`，装完 `purge` 掉，避免工具链留在运行时层。
+
+> ⚠️ **诚实标注：本机的开发环境没有安装 Docker，这个 Dockerfile 与 compose 文件
+> 尚未实机 `docker build` 验证过。** 它是按官方文档与依赖特性推演出来的，
+> 首次构建如遇报错（最可能是 `insightface` 编译、`opencv-python` 缺 GL 库、
+> 或模型源被墙），欢迎提 issue 或直接对照报错修正——请不要在没构建成功前对外声称"一键可用"。
 
 ---
 
@@ -448,12 +476,13 @@ REM 一人多号：故意把同一身份拆到不同学号（制造脏数据）
 | 层 | 技术 |
 |----|------|
 | 后端框架 | FastAPI 0.136 + Uvicorn |
-| ORM | SQLAlchemy 2.0（Mapped 声明式）+ SQLite |
+| ORM | SQLAlchemy 2.0（Mapped 声明式）+ SQLite（WAL + busy_timeout，见八·补·四） |
 | 向量库 | Milvus Lite 2.5（HNSW + COSINE，512 维） |
 | 人脸识别 | insightface 1.0.1 (buffalo_l / ArcFace) + onnxruntime |
 | ML | numpy 相似度矩阵 + scipy 层次聚类 |
 | 前端 | Vue 3.5 + Vite 6 + Element Plus + ECharts 5 + Pinia |
 | 实时通信 | WebSocket（服务端连接池 + 前端断线重连） |
+| 容器化 | Docker + docker-compose（仅后端；**尚未实机构建验证**） |
 
 ---
 
@@ -580,9 +609,19 @@ cd backend
 
 | 接口 | P50 | P95 | P99 | 错误 | 吞吐 |
 |---|---:|---:|---:|---:|---:|
-| `GET /api/health` | 10.1 ms | 14.8 ms | 15.9 ms | 0 | 1140 QPS |
-| `GET /api/students`（分页） | 91.4 ms | 121.3 ms | 123.1 ms | 0 | 348 QPS |
-| `GET /api/attendance/summary` | 51.8 ms | 67.9 ms | 69.2 ms | 0 | 513 QPS |
+| `GET /api/health` | 8.1 ms | 11.9 ms | 13.8 ms | 0 | 1374 QPS |
+| `GET /api/students`（分页） | 98.6 ms | 119.4 ms | 141.2 ms | 0 | 304 QPS |
+| `GET /api/attendance/summary` | 41.6 ms | 58.9 ms | 59.2 ms | 0 | 633 QPS |
+
+> **口径必须写清楚**（不写就是在误导）：
+> - **读为主**：A 组三个接口全是 GET。写路径另测，见「八·补·四」。
+> - **本机数据**：Intel i5-13500H（12 核 16 线程）/ 16 GB / Windows 11，服务与压测脚本同机。
+>   同机压测会互相抢 CPU，真实部署下的数字应更好看而不是更差。
+> - **数据量极小**：压测时库里只有 28 名学生、12 张人脸、3 条考勤（52 KB）。
+>   这组数字反映的是**框架 + 序列化 + SQLite 小库查询**的开销，**不代表大数据量下的表现**；
+>   量上去以后 `students` 分页会先退化（缺少覆盖查询条件的复合索引）。
+> - 因此对外承诺的正确说法是「**本机、小数据量、读为主的业务接口，50 并发 P95 ≤ 120 ms**」，
+>   三个限定语一个都不能少。
 
 **B 组 · 含模型推理**（SCRFD 检测 + ArcFace 前向，瓶颈在 CPU）— 单机 CPU 推理：
 
@@ -594,7 +633,8 @@ cd backend
 
 **结论与口径**：
 
-1. 业务接口在 50 并发下 **P95 ≤ 121 ms、零错误**，这是可以直接对外承诺的数字。
+1. 业务接口在 50 并发下 **P95 ≤ 120 ms、零错误**。对外引用时必须带上三个限定语：
+   **本机（i5-13500H）、小数据量（28 名学生）、读为主**，缺一个就是过度承诺。
 2. 含推理的接口**单请求 1.5~1.7 s，实测容量约 0.65 QPS**。50 并发不是死锁，
    是排队：50 × 1.5 s = 75 s 超过了 60 s 的客户端超时 —— 请求在线程池里等着，
    不是框架崩了。定位依据是并发 1 的基线与并发 10 的梯度完全吻合。
@@ -602,8 +642,51 @@ cd backend
    并发需求 ≈ 1。真要扩容，方向是把推理拆到独立进程池 / 加队列削峰 / 换 GPU，
    而不是调 Web 框架参数。
 
-> 只报 A 组属于选择性呈现 —— 两组差 495 倍，藏掉 B 组就等于没测。
+> 只报 A 组属于选择性呈现 —— 两组差 500 倍，藏掉 B 组就等于没测。
 > 原始数据随仓库留存：`backend/scripts/bench_result.json`（压测时自动覆盖）。
+
+---
+
+### 八·补·四：SQLite 并发写 —— 一个读压测永远暴露不出的问题
+
+A 组压测全是读接口。**写路径是另一回事**：SQLite 出厂用 rollback journal，
+同一时刻只允许一个写事务，写还会阻塞读。这个问题在读压测里完全不会浮现，
+但它决定了签到高峰期的真实体感。
+
+脚本 **`backend/scripts/bench_sqlite_write.py`**（不需要起后端，跑在临时库上）：
+
+```bat
+cd backend
+.venv\Scripts\python.exe scripts\bench_sqlite_write.py --writers 50 --per-writer 10
+```
+
+用真实 ORM 模型（`Student` + `Attendance`）跑「查当日是否已签 → 插入 → 提交」这条实际写入路径，
+50 并发 × 10 事务 = 500 次写。四组对照（同一台 i5-13500H）：
+
+| # | journal_mode | 连接池 | 失败率 | P95 | 写吞吐 |
+|---|---|---|---:|---:|---:|
+| A | delete（出厂默认） | QueuePool | 0% | **2182 ~ 2265 ms** | 189 ~ 196 TPS |
+| B | WAL + busy_timeout=5s | QueuePool | 0% | **279 ~ 287 ms** | 416 ~ 499 TPS |
+| C | delete（出厂默认） | NullPool | 0% | 2733 ~ 2755 ms | 149 ~ 154 TPS |
+| D | WAL + busy_timeout=5s | NullPool | 0%（偶发 1 次） | 988 ~ 1092 ms | 203 ~ 281 TPS |
+
+（A/B 跑了两次取区间；C/D 是不复用连接的极端情形，用来观察连接池失效后的形态。）
+
+**三条结论**：
+
+1. **失败形态不是报错，是延迟暴涨。** 连接池把并发排队消化掉了，监控上看不到 5xx，
+   只会看到 P95 难看 —— 这类问题最容易被忽略，因为它不报警。
+   所以「SQLite 扛不扛得住」的答案不是"会不会崩"，而是"P95 会到几秒"。
+2. **`PRAGMA journal_mode=WAL` 把 P95 从约 2.2 s 压到约 0.28 s（约 8 倍），写吞吐翻倍以上。**
+   WAL 下读写不再互斥，允许「一写多读」。项目已在 `core/db.py` 的连接事件里开启。
+3. **`busy_timeout=5000` 是给写路径加的退化保护**：出厂是 0，抢不到锁立刻抛
+   `database is locked`；设了之后绝大多数冲突变成短暂等待而不是直接报错。
+   配套 `synchronous=NORMAL` —— WAL 下已保证崩溃一致性，不必每次提交都 fsync。
+
+> 顺带一个实测现象：D 组偶发一次 `attempt to write a readonly database`（复跑未复现），
+> 怀疑是 Windows 临时目录上 WAL 辅助文件的瞬时访问冲突，与锁无关；如实记录，不做掩饰。
+
+原始数据：`docs/verify-log/bench_sqlite_write.json`。
 
 ---
 

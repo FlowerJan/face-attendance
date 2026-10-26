@@ -1,0 +1,31 @@
+# 不要把本机运行产物打进镜像：它们既没用，还会让构建上下文巨大甚至覆盖容器内的干净状态。
+.git
+.github
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+node_modules
+frontend/node_modules
+frontend/dist
+
+# 单形态数据库 / 上传目录 / 实验复现库（都由 docker-compose 的卷提供）
+backend/attendance.db
+backend/attendance.db-wal
+backend/attendance.db-shm
+backend/milvus_lite.db/
+backend/milvus_data/
+backend/uploads/
+backend/.repro/
+backend/scripts/.repro/
+
+# 模型权重（约 600MB，构建时不烤，首次启动时由 entrypoint 下载）
+backend/models/buffalo_l/
+backend/models/buffalo_l.zip
+
+# 文档与临时产物
+docs/verify-log/
+*.log
+*.md.bak
+.DS_Store
