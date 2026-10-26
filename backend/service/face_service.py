@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from core.config import settings
 from core.face_engine import detect_faces
 from core.quality_gate import QualityGate
+from models.face import Face
 from repository import student_repo, face_repo
 from service.cluster_service import CROSS_STUDENT_THRESHOLD
 
@@ -15,6 +16,55 @@ logger = logging.getLogger(__name__)
 
 # 门控规则集是纯配置化的无状态对象，全局复用一份即可
 _quality_gate = QualityGate()
+
+
+def _remove_disk_file(path: str) -> None:
+    """回滚步骤：删除已落盘的图片。删不掉只记日志——孤儿文件的代价小于回滚中断。"""
+    try:
+        if path and os.path.exists(path):
+            os.remove(path)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("[face] 回滚失败，磁盘文件需人工清理 %s: %s", path, exc)
+
+
+def _delete_face_row(db: Session, row_id: int) -> None:
+    """回滚步骤：删除 SQLite 记录。按 id 重新取对象，避免用已失效的 ORM 实例。"""
+    try:
+        obj = db.get(Face, row_id)
+        if obj is not None:
+            db.delete(obj)
+            db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("[face] 回滚失败，数据库记录需人工清理 id=%s: %s", row_id, exc)
+
+
+def _rollback_enroll(db: Session, undo: list, face_id: int | None) -> None:
+    """补偿式回滚：逆序撤销已完成的写入步骤。
+
+    三处存储（文件系统 / SQLite / Milvus）之间没有分布式事务可用，
+    只能靠"成功一步压一步、出错逆序撤销"来收敛。每一步都单独吞异常，
+    保证前一步回滚失败不影响后一步——宁可留一条待人工清理的日志，
+    也不能因为回滚链断掉而把已完成的写入留在半截状态。
+    """
+    try:
+        # 先把可能处在坏事务里的 session 复位，否则后面的 delete 也 commit 不出去
+        db.rollback()
+    except Exception:  # noqa: BLE001
+        pass
+
+    for name, undo_fn in reversed(undo):
+        try:
+            undo_fn()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("[face] 回滚步骤 %s 异常: %s", name, exc)
+
+    # 兜底：insert_vector 抛异常时无法判定向量是否真的没写进去
+    # （超时类失败可能服务端已成功），按 face_id 幂等删一次，删不掉也只是记日志
+    if face_id is not None:
+        try:
+            face_repo.delete_vectors([face_id])
+        except Exception as exc:  # noqa: BLE001
+            logger.error("[face] 向量兜底删除失败 face_id=%s: %s", face_id, exc)
 
 
 def enroll_face(db: Session, student_id: int, image_bytes: bytes) -> dict:
@@ -57,35 +107,56 @@ def enroll_face(db: Session, student_id: int, image_bytes: bytes) -> dict:
 
     embedding = main_face.embedding
 
-    # 4. save image to disk (by student_no subdirectory)
+    # 4~6. 三写段：磁盘 / SQLite / Milvus
+    #   这三处没有事务可言，中途失败会留下「有图有记录但检索不到」的半截数据，
+    #   而且不会自愈。所以成功一步压一步进 undo 栈，出错就逆序撤销。
     student_dir = os.path.join(str(settings.FACE_IMG_DIR), student.student_no)
     os.makedirs(student_dir, exist_ok=True)
     import time
     filename = f"{int(time.time() * 1000)}.jpg"
     img_path = os.path.join(student_dir, filename)
-    cv2.imwrite(img_path, img)
-
-    # relative path for storage
     rel_path = f"/uploads/faces/{student.student_no}/{filename}"
 
-    # 5. create SQLite metadata record first (to get auto-increment id as face_id)
-    face = face_repo.create_face_record(db, student_id, rel_path)
-    # use the SQLite auto-increment id as Milvus face_id (ensures 1:1 mapping)
-    face_repo_face_id = face.id
+    undo: list[tuple[str, object]] = []
+    face = None
+    face_repo_face_id = None
+    try:
+        # imwrite 写失败是返回 False 而不是抛异常，必须显式判断——
+        # 否则磁盘满了也会静默往下走，照样建记录、照样写向量
+        if not cv2.imwrite(img_path, img):
+            raise OSError(f"磁盘写入失败（返回 False）: {img_path}")
+        undo.append(("disk", lambda: _remove_disk_file(img_path)))
 
-    # update face_id in the record
-    face.face_id = face_repo_face_id
-    from models.face import Face
-    db_face = db.get(Face, face.id)
-    db_face.face_id = face_repo_face_id
-    db.commit()
-    db.refresh(db_face)
+        # 先建 SQLite 记录，用自增 id 作为 Milvus 的 face_id（保证 1:1 映射）
+        face = face_repo.create_face_record(db, student_id, rel_path)
+        face_repo_face_id = face.id
+        undo.append(("sqlite", lambda rid=face.id: _delete_face_row(db, rid)))
 
-    # 6. insert vector into Milvus
-    face_repo.insert_vector(face_repo_face_id, student_id, embedding)
+        face.face_id = face_repo_face_id
+        db.commit()
+        db.refresh(face)
+
+        face_repo.insert_vector(face_repo_face_id, student_id, embedding)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("[face] 录入失败，执行补偿回滚: %s", exc)
+        _rollback_enroll(db, undo, face_repo_face_id)
+        return {
+            "code": 1,
+            "message": f"录入失败，已回滚已完成步骤（{type(exc).__name__}）",
+            "detail": str(exc),
+        }
 
     # 7. update student face_status
-    student_repo.update_face_status(db, student_id, 1)
+    #    这是派生字段（可由 faces 表 count 得出），失败刻意不回滚：
+    #    走到这里三处写入都已完成，录入实质是成功的，为一个冗余字段把整次录入
+    #    作废代价更大；失败只记日志，留待重建脚本修正。
+    try:
+        student_repo.update_face_status(db, student_id, 1)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "[face] face_status 更新失败（录入本身已成功，状态待重建）student=%s: %s",
+            student_id, exc,
+        )
 
     # 8. 实时查重：与库中已有向量比对（Milvus 向量检索）
     similar_existing = []
