@@ -78,3 +78,25 @@ def init_db():
     # import models so they register on Base.metadata
     from models import student, face, notice, attendance  # noqa: F401
     Base.metadata.create_all(bind=engine)
+
+
+def migrate_attendance_diagnostics():
+    """为既有 attendance 表补齐 M5 诊断字段（top2_similarity / margin / ambiguous）。
+
+    仅做 ADD COLUMN，且按"列已存在则跳过"的方式实现——对已建好的库无副作用，
+    对老库则补齐，避免 checkin 落库时缺列报错。
+    不改变任何已有数据。
+    """
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    cols = {c["name"] for c in insp.get_columns("attendance")}
+    needed = [
+        ("top2_similarity", "FLOAT"),
+        ("margin", "FLOAT"),
+        ("ambiguous", "INTEGER NOT NULL DEFAULT 0"),
+    ]
+    with engine.begin() as conn:
+        for name, ddl in needed:
+            if name not in cols:
+                conn.execute(text(f"ALTER TABLE attendance ADD COLUMN {name} {ddl}"))
+                print(f"[migrate] attendance 已补列: {name}")

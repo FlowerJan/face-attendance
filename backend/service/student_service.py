@@ -64,6 +64,7 @@ def delete_student(db: Session, student_id: int) -> dict:
     deleted_vectors = 0
     if face_ids:
         face_repo.delete_vectors(face_ids)
+        face_repo.remove_active(face_ids)  # M5：同步撤出有效人脸索引
         deleted_vectors = len(face_ids)
 
     # 5. delete disk image files

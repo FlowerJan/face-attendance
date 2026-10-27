@@ -11,9 +11,10 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from core.config import settings
-from core.db import init_db
+from core.db import init_db, migrate_attendance_diagnostics
 from core.enums import EnumContainer
 from core.milvus import get_client
+from repository import face_repo
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,13 @@ async def lifespan(app: FastAPI):
 
     print("[startup] initializing SQLite tables...")
     init_db()
+    migrate_attendance_diagnostics()
+
+    print("[startup] building active-face index (M5: 只匹配仍有效的人脸)...")
+    from core.db import SessionLocal
+    with SessionLocal() as db:
+        n = face_repo.refresh_active_index(db)
+    print(f"  active faces: {n}")
 
     print("[startup] connecting Milvus Lite...")
     get_client()

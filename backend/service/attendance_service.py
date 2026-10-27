@@ -73,9 +73,13 @@ def checkin(db: Session, image_bytes: bytes) -> dict:
     best = hits[0] if hits else None
     best_similarity = float(best["similarity"]) if best else -1.0
     margin = _identify_margin(hits)
+    # 第二名相似度（无论是否同一人），用于 top1-top2 紧挨度复盘
+    top2_similarity = float(hits[1]["similarity"]) if len(hits) >= 2 else None
+    ambiguous = bool(_margin_fields(margin).get("ambiguous"))
     if best is None or best_similarity < CHECKIN_THRESHOLD:
         return {"code": 0, "data": {
             "recognized": False,
+            "decision": "unrecognized",
             "reason": "no match above threshold",
             "best_similarity": round(best_similarity, 4),
             "threshold": CHECKIN_THRESHOLD,
@@ -95,17 +99,24 @@ def checkin(db: Session, image_bytes: bytes) -> dict:
     if existing:
         return {"code": 0, "data": {
             "recognized": True,
+            "decision": "ambiguous" if ambiguous else "recognized",
             "duplicate": True,
+            "top2_similarity": round(top2_similarity, 4) if top2_similarity is not None else None,
             "record": _serialize(existing, student),
             **_margin_fields(margin),
         }}
 
     record = attendance_repo.create_record(
-        db, student.id, int(best["face_id"]), best_similarity, today
+        db, student.id, int(best["face_id"]), best_similarity, today,
+        top2_similarity=top2_similarity,
+        margin=margin,
+        ambiguous=int(ambiguous),
     )
     return {"code": 0, "data": {
         "recognized": True,
+        "decision": "ambiguous" if ambiguous else "recognized",
         "duplicate": False,
+        "top2_similarity": round(top2_similarity, 4) if top2_similarity is not None else None,
         "record": _serialize(record, student),
         **_margin_fields(margin),
     }}
@@ -161,6 +172,9 @@ def _serialize(record, student) -> dict:
         "class_name": student.class_name,
         "face_id": record.face_id,
         "similarity": round(float(record.similarity), 4) if record.similarity is not None else None,
+        "top2_similarity": round(float(record.top2_similarity), 4) if record.top2_similarity is not None else None,
+        "margin": round(float(record.margin), 4) if record.margin is not None else None,
+        "ambiguous": bool(record.ambiguous),
         "checkin_date": record.checkin_date,
         "checkin_at": str(record.checkin_at) if record.checkin_at else None,
     }

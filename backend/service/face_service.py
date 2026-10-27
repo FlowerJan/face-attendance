@@ -158,10 +158,11 @@ def enroll_face(db: Session, student_id: int, image_bytes: bytes) -> dict:
             student_id, exc,
         )
 
-    # 8. 实时查重：与库中已有向量比对（Milvus 向量检索）
+    # 8. 实时查重：与库中已有向量比对（全量，不按 active 过滤，
+    #    否则刚提交的这张还没登记进 active 索引，会漏掉自己与自己的查重）
     similar_existing = []
     try:
-        for hit in face_repo.search_similar(embedding, top_k=5):
+        for hit in face_repo.search_similar(embedding, top_k=5, only_active=False):
             if hit["face_id"] == face_repo_face_id:
                 continue
             if hit["similarity"] < CROSS_STUDENT_THRESHOLD:
@@ -176,6 +177,11 @@ def enroll_face(db: Session, student_id: int, image_bytes: bytes) -> dict:
             })
     except Exception as exc:  # noqa: BLE001
         logger.warning("[face] 实时查重失败（不影响录入）: %s", exc)
+
+    # 9. 录入成功，登记这张脸为可匹配（维护 M5 有效人脸索引）。
+    #    必须放在 return 之前——否则新录入的脸在进程重启前不会进入 _ACTIVE_FACE_IDS，
+    #    导致"刚录完立刻打卡却识别不到"的假象（Checkin 默认 only_active=True）。
+    face_repo.add_active(face_repo_face_id)
 
     return {"code": 0, "data": {
         "detected": True,
@@ -236,6 +242,8 @@ def delete_face(db: Session, face_id: int) -> dict:
 
     # 2. delete Milvus vector
     face_repo.delete_vectors([face_id])
+    # 2.5 从有效人脸索引撤出，避免孤儿向量被后续 1:N 命中
+    face_repo.remove_active([face_id])
 
     # 3. delete disk file
     full_path = os.path.join(str(settings.BASE_DIR), image_path.lstrip("/"))

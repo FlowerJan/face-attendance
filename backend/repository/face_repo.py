@@ -1,11 +1,60 @@
 """Face repository — SQLite metadata + Milvus vector operations."""
+import logging
 import time
-from sqlalchemy import select, func
+from sqlalchemy import select, func, join as sa_join
 from sqlalchemy.orm import Session
 from models.face import Face
+from models.student import Student
 from core.milvus import get_client
 from core.config import settings
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+# ────────────────────────────────────────────────────────────
+# 有效人脸索引（M5 硬门槛①）：1:N 检索只对"仍有效"的底片进行。
+#
+# 为什么需要它：
+#   删除学生/删除单张脸时，三处存储（SQLite / Milvus / 磁盘）是分别删的，
+#   一旦某一步失败就可能留下"Milvus 里还有向量、但 SQLite 已无记录"的孤儿向量，
+#   此时若直接拿现场抓拍去全库搜索，仍可能命中孤儿向量 → "已注销学生还能打卡"。
+#   参考项目 M5 把这条列为 HIGH 级失效模式（忘过滤 face_status → 已注销学生能打卡）。
+#
+# 做法：用 SQLite 的 faces 表 LEFT JOIN students(face_status=1) 作为唯一真相源，
+#   维护一份进程内 face_id 集合；search_similar 的命中结果只保留在集合内的 face_id。
+#   录入成功 / 删除时即时更新集合，应用启动时整体重建一次。
+# 说明：不做 Milvus 层 filter 字段，避免改动已有集合 schema（会丢数据），
+#   在召回结果上做二次过滤，对单请求一次检索而言开销可忽略。
+# ────────────────────────────────────────────────────────────
+_ACTIVE_FACE_IDS: set[int] = set()
+_ACTIVE_BUILT = False
+
+
+def refresh_active_index(db: Session) -> int:
+    """从 SQLite 重建有效人脸集合：有底片且所属学生 face_status=1 的 face_id。"""
+    global _ACTIVE_FACE_IDS, _ACTIVE_BUILT
+    rows = db.execute(
+        select(Face.face_id)
+        .join(Student, Face.student_id == Student.id)
+        .where(Student.face_status == 1)
+    ).scalars().all()
+    _ACTIVE_FACE_IDS = set(int(r) for r in rows)
+    _ACTIVE_BUILT = True
+    return len(_ACTIVE_FACE_IDS)
+
+
+def add_active(face_id: int) -> None:
+    _ACTIVE_FACE_IDS.add(int(face_id))
+
+
+def remove_active(face_ids: list[int]) -> None:
+    for fid in face_ids:
+        _ACTIVE_FACE_IDS.discard(int(fid))
+
+
+def _is_active(face_id: int) -> bool:
+    return int(face_id) in _ACTIVE_FACE_IDS
 
 
 # ---- SQLite operations ----
@@ -81,7 +130,7 @@ def delete_vectors(face_ids: list[int]):
         )
 
 
-def search_similar(embedding: np.ndarray, top_k: int = 5) -> list[dict]:
+def search_similar(embedding: np.ndarray, top_k: int = 5, only_active: bool = True) -> list[dict]:
     c = get_client()
     results = c.search(
         collection_name=settings.COLLECTION_NAME,
@@ -93,8 +142,11 @@ def search_similar(embedding: np.ndarray, top_k: int = 5) -> list[dict]:
     hits = []
     if results and results[0]:
         for hit in results[0]:
+            fid = hit.entity.get("face_id")
+            if only_active and not _is_active(fid):
+                continue  # M5 硬门槛①：已失效 / 孤儿向量不参与匹配
             hits.append({
-                "face_id": hit.entity.get("face_id"),
+                "face_id": fid,
                 "student_id": hit.entity.get("student_id"),
                 "similarity": float(hit.distance),
             })

@@ -234,9 +234,10 @@ docker compose up -d        # 首次会下载约 600MB 的人脸模型
 docker compose logs -f api  # 看到 /api/health  healthcheck healthy 即就绪
 ```
 
-打开 <http://localhost:8000/docs> 验证。停止：`docker compose down`（卷保留，模型不会重下）。
+打开 <http://localhost:8000/docs> 验证。停止：`docker compose down`
+（`app-state` 卷保留 SQLite 与向量库，`insightface-models` 卷保留模型，重建不用重下）。
 
-三个取舍写在 `Dockerfile` 注释里，这里只说结论：
+四个取舍写在 `Dockerfile` 注释里，这里只说结论：
 
 1. **只容器化后端**。前端是 Vite 静态站，走 `npm run build` + nginx 是另一条链路，
    塞进同一镜像只会把关注点搅在一起。
@@ -244,9 +245,17 @@ docker compose logs -f api  # 看到 /api/health  healthcheck healthy 即就绪
    `insightface-models` 命名卷缓存，重建容器不用重传。
 3. **编译依赖用完即删**。`insightface` 在 PyPI 上是源码分发（含 Cython/C++ 扩展），
    slim 镜像没编译器，所以先装 `build-essential`，装完 `purge` 掉，避免工具链留在运行时层。
+4. **数据卷按真实路径挂**。SQLite 与 Milvus-Lite 落在 `/app/backend/attendance.db`、
+   `/app/backend/milvus_lite.db`（由 `core/config.py` 用 `BASE_DIR` 拼出），
+   所以单独给了 `app-state` 卷并用 `SQLITE_URL` / `MILVUS_DB_PATH` 两个环境变量指过去
+   （`config.py` 用 pydantic-settings，同名环境变量自动覆盖，无需改代码）。
+   别挂在 `/app/backend/data`——那目录放的是启动加载的班级/专业 CSV 字典。
 
 > ⚠️ **诚实标注：本机的开发环境没有安装 Docker，这个 Dockerfile 与 compose 文件
-> 尚未实机 `docker build` 验证过。** 它是按官方文档与依赖特性推演出来的，
+> 尚未实机 `docker build` 验证过。** 它按官方文档与依赖特性推演写成，
+> 并用静查手段核过了：构建上下文体积、被引用的文件路径是否都存在、`/api/health` 是否真实存在、
+> entrypoint 行尾是否为 LF、环境变量能否覆盖配置（原始输出见
+> `docs/verify-log/docker_static_check_2026-10-26.txt`）。
 > 首次构建如遇报错（最可能是 `insightface` 编译、`opencv-python` 缺 GL 库、
 > 或模型源被墙），欢迎提 issue 或直接对照报错修正——请不要在没构建成功前对外声称"一键可用"。
 
@@ -687,6 +696,44 @@ cd backend
 > 怀疑是 Windows 临时目录上 WAL 辅助文件的瞬时访问冲突，与锁无关；如实记录，不做掩饰。
 
 原始数据：`docs/verify-log/bench_sqlite_write.json`。
+
+### 八·补·五：M5 人脸识别模块强化（有效人脸索引 + 诊断字段落库）
+
+参考项目把"人脸识别"单列成 M5，并明确两条**硬门槛**。本项目原实现已具备识别闭环与"识别余量"判定，
+但对照 M5 后补了两处真缺口：
+
+**① 已失效 / 孤儿人脸不能参与 1:N 匹配（M5 硬门槛①，HIGH）**
+
+删除学生、删除单张脸时，SQLite / Milvus / 磁盘三处是分别删的，任一步失败都会留下
+"Milvus 里还有向量、但 SQLite 已无记录"的孤儿向量。原 `search_similar` 直接查全库，
+若命中孤儿向量就会"已注销学生还能打卡"。
+
+修复：以 SQLite 的 `faces LEFT JOIN students(face_status=1)` 为唯一真相源，维护一份进程内
+`face_id` 集合（`face_repo._ACTIVE_FACE_IDS`）。`search_similar` 默认 `only_active=True`，
+命中结果只保留在集合内的 face_id；录入成功 / 删除学生 / 删除单张脸时即时增删该集合，
+应用启动时整体重建一次。不在 Milvus 层加 filter 字段，避免改动集合 schema 丢数据。
+
+**② 诊断字段必须落库（M5 硬门槛②）**
+
+原 `attendance` 只存了 top1 相似度。阈值标定（M6）复盘"为什么判错"时，没有第二名、
+没有余量就无从下手。现 `attendance` 增加三列：
+
+| 字段 | 含义 |
+|---|---|
+| `top2_similarity` | 第二名相似度（无论是否同一人），用于 top1−top2 紧挨度判断 |
+| `margin` | top1 与"另一个人"最高相似度的差（识别余量），越小越可疑 |
+| `ambiguous` | 本次是否判为"相似脸、需人工确认"（0/1） |
+
+`checkin` 在落库时一并写入这三列；同时接口返回新增 `decision` 字段（`unrecognized` /
+`ambiguous` / `recognized`），把三态判定显式化。存量库通过 `migrate_attendance_diagnostics()`
+（`core/db.py`，启动钩子自动调用）以 `ALTER TABLE ... ADD COLUMN` 补齐，不碰已有数据。
+
+`CHECKIN_THRESHOLD=0.50`（比审计 cross_student=0.40 更保守，因误接受会直接写一条出勤记录、
+代价高于查重漏报）与 `MARGIN_WARN=0.10` 维持不变；二者尚未像审计阈值那样做过网格标定，
+列为 README 已知事项待办。
+
+测试：`backend/test/test_m5_recognition.py`（4 项，含 active 索引过滤、诊断字段落库、
+ambiguous 三态判定，全部 monkeypatch 掉模型与 Milvus，秒级跑完）。
 
 ---
 

@@ -9,11 +9,15 @@ from models.student import Student
 
 
 def create_record(db: Session, student_id: int, face_id: int, similarity: float,
-                  checkin_date: str) -> Attendance:
+                  checkin_date: str, *, top2_similarity: float | None = None,
+                  margin: float | None = None, ambiguous: int = 0) -> Attendance:
     record = Attendance(
         student_id=student_id,
         face_id=face_id,
         similarity=similarity,
+        top2_similarity=top2_similarity,
+        margin=margin,
+        ambiguous=ambiguous,
         checkin_date=checkin_date,
         checkin_at=datetime.now(),
     )
@@ -49,6 +53,9 @@ def list_by_date(db: Session, checkin_date: str, page: int = 1, page_size: int =
             "class_name": s.class_name,
             "face_id": att.face_id,
             "similarity": round(float(att.similarity), 4) if att.similarity is not None else None,
+            "top2_similarity": round(float(att.top2_similarity), 4) if att.top2_similarity is not None else None,
+            "margin": round(float(att.margin), 4) if att.margin is not None else None,
+            "ambiguous": bool(att.ambiguous),
             "checkin_date": att.checkin_date,
             "checkin_at": str(att.checkin_at) if att.checkin_at else None,
         }
