@@ -130,15 +130,30 @@ def delete_vectors(face_ids: list[int]):
         )
 
 
-def search_similar(embedding: np.ndarray, top_k: int = 5, only_active: bool = True) -> list[dict]:
+def search_similar(embedding: np.ndarray, top_k: int = 5, only_active: bool = True,
+                   exclude_student_id: int | None = None) -> list[dict]:
+    """1:N 向量检索。
+
+    exclude_student_id:
+        在 Milvus 层排除某个学号的全部向量后检索。用于「在库里找另一个人」——
+        典型场景是签到识别要算识别余量（top1 与「另一个人」最高相似度的差）。
+        为什么必须在 Milvus 层排除而不是取回后再筛：
+        同一学生常录多张底片，若先取 top_k 再在结果里找异人，
+        窗口会被他自己的底片占满（top_k=3 时前 3 名可能全是同一人），
+        导致「另一个人」根本不在窗口里 → 余量恒为 None → 歧义检测静默失效。
+        参考实现即采用"排除 top1 所属人后再检索"的等价做法。
+    """
     c = get_client()
-    results = c.search(
+    search_kwargs = dict(
         collection_name=settings.COLLECTION_NAME,
         data=[embedding.tolist()],
         limit=top_k,
         output_fields=["face_id", "student_id", "created_at"],
         search_params={"metric_type": "COSINE"},
     )
+    if exclude_student_id is not None:
+        search_kwargs["filter"] = f"student_id != {int(exclude_student_id)}"
+    results = c.search(**search_kwargs)
     hits = []
     if results and results[0]:
         for hit in results[0]:

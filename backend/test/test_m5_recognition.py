@@ -120,12 +120,15 @@ def test_diagnostics_persisted_and_ambiguous_flagged(monkeypatch, db_session):
 
     captured = {}
 
-    def fake_search(embedding, top_k=5, only_active=True):
+    def fake_search(embedding, top_k=5, only_active=True, exclude_student_id=None):
         # top1 学号7，top2 学号9（不同人）且相似度咬得紧 → 歧义
-        return [
+        pool = [
             {"face_id": 11, "student_id": 7, "similarity": 0.80},
             {"face_id": 20, "student_id": 9, "similarity": 0.76},
         ]
+        if exclude_student_id is not None:
+            pool = [h for h in pool if h["student_id"] != exclude_student_id]
+        return pool[:top_k]
 
     def fake_create(db, student_id, face_id, similarity, checkin_date, *,
                     top2_similarity=None, margin=None, ambiguous=0):
@@ -169,11 +172,14 @@ def test_diagnostics_clean_when_far_apart(monkeypatch, db_session):
 
     captured = {}
 
-    def fake_search(embedding, top_k=5, only_active=True):
-        return [
+    def fake_search(embedding, top_k=5, only_active=True, exclude_student_id=None):
+        pool = [
             {"face_id": 11, "student_id": 7, "similarity": 0.88},
             {"face_id": 20, "student_id": 9, "similarity": 0.31},
         ]
+        if exclude_student_id is not None:
+            pool = [h for h in pool if h["student_id"] != exclude_student_id]
+        return pool[:top_k]
 
     monkeypatch.setattr(face_repo, "search_similar", fake_search)
     monkeypatch.setattr(svc.student_repo, "get_by_id", lambda db, sid: _FakeStudent(sid))
@@ -186,6 +192,53 @@ def test_diagnostics_clean_when_far_apart(monkeypatch, db_session):
     assert result["data"]["decision"] == "recognized"
     assert captured["ambiguous"] == 0
     assert captured["margin"] == 0.57
+
+
+def test_margin_survives_own_faces_filling_topk_window(monkeypatch, db_session):
+    """关键回归：top1 自己录了多张底片、占满 top3 窗口时，margin 仍要算得出来。
+
+    背景（真 bug）：旧实现取回 top3 后在窗口里找"另一个人"，
+    而同一学生常录多张底片 → top3 全是他自己 → 异人不在窗口 →
+    margin 恒为 None → ambiguous 永远 False → 歧义检测静默失效。
+    现在改为在 Milvus 层 exclude top1 学号后重新检索。
+    """
+    emb = np.zeros(512, dtype=np.float32)
+    monkeypatch.setattr(svc, "detect_faces", lambda img: [_fake_face(emb)])
+    monkeypatch.setattr(svc, "_quality_gate", _pass_gate())
+    monkeypatch.setattr(svc.cv2, "imdecode",
+                        lambda buf, flag: np.zeros((100, 100, 3), np.uint8))
+
+    captured = {}
+    seen_filters = []
+
+    def fake_search(embedding, top_k=5, only_active=True, exclude_student_id=None):
+        seen_filters.append(exclude_student_id)
+        # 库中：学生7 有 3 张底片（占满 top3），学生9 有 1 张且咬得紧
+        pool = [
+            {"face_id": 11, "student_id": 7, "similarity": 1.00},
+            {"face_id": 12, "student_id": 7, "similarity": 0.99},
+            {"face_id": 13, "student_id": 7, "similarity": 0.98},
+            {"face_id": 20, "student_id": 9, "similarity": 0.93},
+        ]
+        if exclude_student_id is not None:
+            pool = [h for h in pool if h["student_id"] != exclude_student_id]
+        return pool[:top_k]
+
+    monkeypatch.setattr(face_repo, "search_similar", fake_search)
+    monkeypatch.setattr(svc.student_repo, "get_by_id", lambda db, sid: _FakeStudent(sid))
+    monkeypatch.setattr(svc.attendance_repo, "get_by_student_and_date",
+                        lambda db, sid, d: None)
+    monkeypatch.setattr(svc.attendance_repo, "create_record",
+                        lambda *a, **k: _capture_and_record(captured, *a, **k))
+
+    result = svc.checkin(db_session, _img_bytes())
+
+    # margin 必须算出来（1.00 - 0.93 = 0.07），而不是 None
+    assert captured["margin"] == 0.07, captured
+    assert captured["ambiguous"] == 1
+    assert result["data"]["decision"] == "ambiguous"
+    # 确认确实走了"排除 top1 学号"的检索
+    assert 7 in seen_filters, seen_filters
 
 
 def _capture_and_record(captured, db, student_id, face_id, similarity, checkin_date,

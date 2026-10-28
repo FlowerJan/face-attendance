@@ -72,9 +72,12 @@ def checkin(db: Session, image_bytes: bytes) -> dict:
 
     best = hits[0] if hits else None
     best_similarity = float(best["similarity"]) if best else -1.0
-    margin = _identify_margin(hits)
-    # 第二名相似度（无论是否同一人），用于 top1-top2 紧挨度复盘
+    # 识别余量要拿「另一个人」的最高相似度来算，必须在 Milvus 层排除 top1 的学号，
+    # 而不是取回 top3 后在窗口里找——同一学生常录多张底片，top3 可能全是他自己，
+    # 那样「另一个人」根本不在窗口内，余量会恒为 None、歧义检测静默失效。
+    # top2_similarity 仍取窗口内第二名（无论是否同一人），用于 top1-top2 紧挨度复盘。
     top2_similarity = float(hits[1]["similarity"]) if len(hits) >= 2 else None
+    margin = _identify_margin(embedding, best)
     ambiguous = bool(_margin_fields(margin).get("ambiguous"))
     if best is None or best_similarity < CHECKIN_THRESHOLD:
         return {"code": 0, "data": {
@@ -122,23 +125,33 @@ def checkin(db: Session, image_bytes: bytes) -> dict:
     }}
 
 
-def _identify_margin(hits: list[dict]) -> float | None:
+def _identify_margin(embedding: np.ndarray, best: dict | None) -> float | None:
     """识别余量 = top1 相似度 − 与 top1 **不同人**的最高相似度。
 
-    为什么要跳过同一个人的其他底片：
-        同一学生录入多张时，top2 往往就是他自己的另一张脸，
-        这时的"第二名"不构成歧义，用它算余量会把正常签到全标成可疑。
+    为什么要到 Milvus 层排除 top1 的学号再检索：
+        同一学生录入多张时，「取回 top3 再在窗口里找异人」会失效——
+        top3 窗口很可能被 top1 自己的底片占满，「另一个人」根本不在窗口内，
+        余量会恒为 None，歧义检测就此静默失效（正是它最该生效的场景：长相相近 / 一人多号）。
+        所以这里用 filter=student_id != top1.student_id 重新检索一次，
+        直接拿到「库里另一个人"的最高相似度。
 
     Returns:
-        None 表示库中只有一个人的底片，无从比较（不做歧义判定）。
+        None 表示库里只有一个人的底片（或检索失败），无从比较（不做歧义判定）。
     """
-    if len(hits) < 2:
+    if not best:
         return None
-    top_student = hits[0].get("student_id")
-    second = next((h for h in hits[1:] if h.get("student_id") != top_student), None)
-    if second is None:
+    top_student = best.get("student_id")
+    top_similarity = float(best["similarity"])
+    try:
+        others = face_repo.search_similar(
+            embedding, top_k=1, exclude_student_id=int(top_student))
+    except Exception as exc:  # noqa: BLE001
+        # 余量算不出来不应阻断签到：宁可少一道提示，也不能让识别整体失败。
+        logger.warning("[attendance] 余量计算失败（按无歧义处理）: %s", exc)
         return None
-    return round(float(hits[0]["similarity"]) - float(second["similarity"]), 4)
+    if not others:
+        return None
+    return round(top_similarity - float(others[0]["similarity"]), 4)
 
 
 def _margin_fields(margin: float | None) -> dict:
