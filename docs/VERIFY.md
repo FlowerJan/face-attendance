@@ -25,8 +25,8 @@
 | 数字 | 实测值 | 核验命令 | 原始输出 |
 |---|---|---|---|
 | 端到端断言 | **68 项通过，0 失败** | 先起后端，再 `cd backend && .venv\Scripts\python.exe scripts\e2e_test.py` | [`verify-log/e2e_2026-10-26.txt`](verify-log/e2e_2026-10-26.txt) |
-| 单元测试 | **29 passed** | `cd backend && .venv\Scripts\python.exe -m pytest test/ -q` | [`verify-log/pytest_2026-10-26.txt`](verify-log/pytest_2026-10-26.txt) |
-| 自动化合计 | **97 项**（29 + 68） | 上两行相加 | — |
+| 单元测试 | **33 passed** | `cd backend && .venv\Scripts\python.exe -m pytest test/ -q` | [`verify-log/pytest_2026-10-26.txt`](verify-log/pytest_2026-10-26.txt) |
+| 自动化合计 | **101 项**（33 + 68） | 上两行相加 | — |
 | REST 接口 | 25 个 + 1 WebSocket | `grep -c "@router\.\(get\|post\|put\|delete\|patch\)" backend/api/*.py` | — |
 | 审计阈值 | cross_student 0.40 / cluster_distance 0.60 | `backend/service/cluster_service.py` | — |
 | 脏库审计召回 | 15/15（阈值 0.40）；默认阈值 0.80 时仅 1/15 | `scripts\audit_baseline_compare.py --scenario dirty` | `docs/verify-log/audit_baseline_dirty.json` |
@@ -54,16 +54,16 @@
 |---|---|
 | `Dockerfile` / `docker-compose.yml` | **仍未实机 `docker build`**（2026-10-26 再次尝试：本机无 docker 引擎，Windows 的 Hyper-V / VirtualMachinePlatform 全为 Disabled，装 Docker 需要启用特性并重启）。已做的**静态核对**见 `docs/verify-log/docker_static_check_2026-10-26.txt`，据此修掉两个问题：① `.dockerignore` 漏 `backend/.venv`（上下文 671.9 MB → 7.1 MB）；② 数据卷挂在 `/app/backend/data`，而 SQLite/Milvus 实际落在 `/app/backend/*.db`，容器一删数据全丢，改为 `app-state` 卷 + `SQLITE_URL` / `MILVUS_DB_PATH` 环境变量重定向。<br>**剩余未验证项**：`insightface` 源码编译、opencv/onnxruntime 运行时库、模型源可达性 —— 必须真机跑通才能去掉这条标注 |
 
-单测各文件明细（合计 25）：
+单测各文件明细（合计 33）：
 
 | 文件 | 用例数 |
 |---|---|
-| `test_attendance_margin.py` | 6 |
+| `test_attendance_margin.py` | 9 |
 | `test_cluster_service.py` | 8 |
 | `test_enroll_rollback.py` | 6 |
+| `test_m5_recognition.py` | 5 |
 | `test_quality_gate.py` | 1 |
 | `test_student_repo.py` | 4 |
-| `test_m5_recognition.py` | 4 |
 
 ---
 

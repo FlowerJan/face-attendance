@@ -728,12 +728,35 @@ cd backend
 `ambiguous` / `recognized`），把三态判定显式化。存量库通过 `migrate_attendance_diagnostics()`
 （`core/db.py`，启动钩子自动调用）以 `ALTER TABLE ... ADD COLUMN` 补齐，不碰已有数据。
 
+**③ 识别余量必须在「排除 top1 学号」的前提下计算（2026-10-28 修复的真 bug）**
+
+原实现 `_identify_margin(hits)` 在 `top_k=3` 的检索窗口里找"另一个人"。但同一学生常录多张底片，
+top3 窗口会被**本人底片占满**，"另一个人"根本不在窗口内 → `margin` 恒为 `None` →
+`ambiguous` 永远 `False` → **歧义检测在真实数据上静默失效**，恰恰发生在它最该生效的场景
+（一人多号、长相相近）。
+
+修复：改为在 Milvus 层用 `filter=student_id != top1.student_id` 排除 top1 所属学号后重新检索，
+直接取异人最高相似度来算余量（`face_repo.search_similar(..., exclude_student_id=...)`）。
+已实测验证 Milvus-Lite 支持 `!=` 过滤表达式。
+
+真实推理实测对比（`backend/tools/demo_recognition.py`）：
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 同一人录 6 张底片后签到 | `margin=None` | `margin=0.9541` |
+| 一人多号（同图注册两个学号） | `decision=recognized`（**未检出**） | `decision=ambiguous`，`margin=0.0` |
+
+测试：`backend/test/test_m5_recognition.py`（5 项）+ `backend/test/test_attendance_margin.py`（9 项），
+含 active 索引过滤、诊断字段落库、ambiguous 三态判定、以及"本人底片占满窗口时余量仍要算得出"
+的回归用例，全部 monkeypatch 掉模型与 Milvus，秒级跑完。
+
 `CHECKIN_THRESHOLD=0.50`（比审计 cross_student=0.40 更保守，因误接受会直接写一条出勤记录、
 代价高于查重漏报）与 `MARGIN_WARN=0.10` 维持不变；二者尚未像审计阈值那样做过网格标定，
 列为 README 已知事项待办。
 
-测试：`backend/test/test_m5_recognition.py`（4 项，含 active 索引过滤、诊断字段落库、
-ambiguous 三态判定，全部 monkeypatch 掉模型与 Milvus，秒级跑完）。
+测试：`backend/test/test_m5_recognition.py`（5 项）+ `backend/test/test_attendance_margin.py`（9 项），
+含 active 索引过滤、诊断字段落库、ambiguous 三态判定、以及"本人底片占满窗口时余量仍要算得出"
+的回归用例，全部 monkeypatch 掉模型与 Milvus，秒级跑完。
 
 ---
 
