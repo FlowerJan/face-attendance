@@ -7,10 +7,21 @@
 #
 # 卷的用意：
 #   insightface-models —— 模型缓存。删容器不丢，重建容器不用重下 600MB。
-#   app-data           —— SQLite / Milvus-Lite / 上传原图。这两个都是**单文件形态**，
-#                        不挂卷的话容器一删数据就跟着没了。
+#   app-state          —— SQLite + Milvus-Lite。这两个才是真正的业务数据，
+#                        且不挂卷的话容器一删数据就跟着没了。
 #
-# ⚠️ 本文件编写环境未安装 Docker，**尚未实机验证**。首次运行请先确认端口 8000 空闲。
+# ⚠️ 卷挂载路径踩坑记录（2026-10-26 静态核对时发现，尚未实机构建）：
+#   业务数据的真实路径是 `/app/backend/attendance.db` 和 `/app/backend/milvus_lite.db`
+#   —— 依据 `backend/core/config.py`：SQLITE_URL / MILVUS_DB_PATH 都是 BASE_DIR 拼出来的
+#   （BASE_DIR = backend/）。早先版本把卷挂在 `/app/backend/data` 上是错的：
+#   那个目录在镜像里放的是启动时加载的 `班级.csv` / `专业.csv` 字典（见 `core/enums.py`），
+#   既不是业务数据，挂上去还会把字典遮住。
+#   修正办法：单独一个 state 目录承接数据，并用环境变量把两个库指过去
+#   —— `core/config.py` 用 pydantic-settings，与字段名同名的环境变量会自动覆盖默认值，
+#   所以不需要改任何 Python 代码。
+#
+# ⚠️ 本文件编写环境未安装 Docker，**尚未实机验证**（2026-10-26 重试：本机无 Docker 引擎、
+#   Windows 虚拟化特性均为 Disabled）。首次运行请先确认端口 8000 空闲。
 services:
   api:
     build:
@@ -23,12 +34,15 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       PYTHONPATH: /app/backend
+      # 把两个持久化文件改指到有卷的目录；漏了这两行，数据仍会落在镜像层里随容器消失
+      SQLITE_URL: sqlite:////app/backend/state/attendance.db
+      MILVUS_DB_PATH: /app/backend/state/milvus_lite.db
     volumes:
       - insightface-models:/root/.insightface
-      - app-data:/app/backend/data
+      - app-state:/app/backend/state
       - ./backend/uploads:/app/backend/uploads
     restart: unless-stopped
 
 volumes:
   insightface-models:
-  app-data:
+  app-state:

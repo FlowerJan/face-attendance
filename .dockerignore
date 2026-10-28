@@ -1,14 +1,20 @@
 # 不要把本机运行产物打进镜像：它们既没用，还会让构建上下文巨大甚至覆盖容器内的干净状态。
 .git
 .github
-.venv
-venv
-__pycache__
-**/__pycache__
-*.pyc
+
+# 虚拟环境（本机实测 backend/.venv 有 875MB）。
+# 注意：写成 `.venv` 只匹配根目录那一个，**子目录的 backend/.venv 不会被忽略**，
+# 必须写成 `**/.venv/`，否则 875MB 的 Windows 虚拟环境会被 COPY 进镜像。
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/*.egg-info/
+
+# 前端不进这个镜像（本镜像只跑后端），排除掉能让构建上下文小一大截
+frontend/
 node_modules
-frontend/node_modules
-frontend/dist
 
 # 单形态数据库 / 上传目录 / 实验复现库（都由 docker-compose 的卷提供）
 backend/attendance.db

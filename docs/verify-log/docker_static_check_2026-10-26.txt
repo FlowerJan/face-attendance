@@ -1,0 +1,127 @@
+# Docker 相关文件静态核对 —— 2026-10-26
+# 背景：本机没有 Docker 引擎（无法 docker build），改为把能静态验证的部分全部实测一遍。
+# 结论写在 docs/VERIFY.md；这里只留存原始输出，方便事后复核。
+
+────────────────────────────────────────────────────────
+1) 环境探测：本机到底能不能 build
+────────────────────────────────────────────────────────
+$ docker version
+> bash: docker: command not found
+
+检查安装位置：
+> C:\Program Files\Docker                  missing
+> C:\Program Files (x86)\Docker            missing
+> C:\ProgramData\Docker                    missing
+> C:\Users\Administrator\AppData\Local\Docker  missing
+> C:\Users\Administrator\scoop\apps\docker missing
+
+可用/不可用的运行时与工具：
+> OK : wsl     -> C:\Windows\system32\wsl.exe   （但被安全策略列入黑名单，执行被拒）
+> OK : winget  -> ...\WindowsApps\winget.exe
+> NA : podman / choco / scoop / nerdctl / dockerd / containerd
+
+Windows 可选特性（Get-WindowsOptionalFeature）：
+> Microsoft-Hyper-V-All     Disabled
+> HypervisorPlatform        Disabled
+> Containers                Disabled
+> VirtualMachinePlatform    Disabled
+处理器固件虚拟化支持：True
+当前用户具备管理员权限：True
+
+⇒ 结论：这台机器**当前跑不了 docker build**。要跑起来需要：
+  ① 启用 Hyper-V / VirtualMachinePlatform（DISM/Windows 功能）→ 重启
+  ② 安装 Docker Desktop（winget install Docker.DockerDesktop，约 1~2GB）
+  ③ 启动引擎后再 build
+  其中 ①② 必须由使用者在自己机器上确认执行，本会话无法代做重启后的部分。
+
+────────────────────────────────────────────────────────
+2) 静态核对查出的问题 ①：构建上下文会把 875MB 的 venv 打进镜像
+────────────────────────────────────────────────────────
+$ du -sh backend/.venv
+> 875M    backend/.venv
+
+原 .dockerignore 里写的是 `.venv` / `venv` —— 在 Docker 的匹配语义中，
+不带 `**/` 前缀的模式只作用于上下文根那一层，**漏掉 backend/.venv**。
+`COPY backend ./backend` 会把整个 Windows 虚拟环境（含大量 .pyd）拷进镜像。
+
+修复：改为 `**/.venv/` `**/venv/` `**/__pycache__/`，并顺手排除 frontend/。
+
+实测（自写脚本模拟 dockerignore 过滤，非 docker 官方实现，仅用于量化）：
+  改动前：保留 21459 个文件 / 671.9 MB
+  改动后：保留   307 个文件 /   7.1 MB
+  改动后被忽略的目录包含 backend/.venv/（820.7 MB）、backend/models/buffalo_l/（325.5 MB）、
+  frontend/（165.9 MB）
+
+【2026-10-28 复跑】tools/check_docker_context.py 之前写成了一段未闭合的文档字符串，
+  脚本本身从未真正跑通过（上面的数字是当时手工统计的）。修复后复跑：
+  上下文保留 530 个文件 / 32.5 MB
+  与 10-26 的 307 / 7.1 MB 有差异，原因是这两天的仓库状态变了，不是过滤规则回退：
+    ① 新增了 docs/ 下的标定报告、backend/scripts/checkin_threshold_sweep.py 等文件；
+    ② 本机跑过评测与测试，多出 backend/.eval/、backend/attendance.db-wal 等运行产物。
+  关键结论不变：backend/.venv（820.7 MB）、backend/models/buffalo_l（325.5 MB）、
+  frontend/（165.9 MB）三大块均被正确排除。
+
+────────────────────────────────────────────────────────
+3) 静态核对查出的问题 ②：数据卷挂错了路径，业务数据其实没持久化
+────────────────────────────────────────────────────────
+backend/core/config.py（节选）：
+    BASE_DIR: Path = Path(__file__).resolve().parent.parent
+    SQLITE_URL: str = f"sqlite:///{BASE_DIR / 'attendance.db'}"
+    MILVUS_DB_PATH: str = str(BASE_DIR / "milvus_lite.db")
+
+默认取值实测（venv python）：
+> SQLITE_URL      = sqlite:///E:\workbuddy-projects\face-attendance\backend\attendance.db
+> MILVUS_DB_PATH  = E:\workbuddy-projects\face-attendance\backend\milvus_lite.db
+
+⇒ 两个库都落在 /app/backend/ 根下，而旧 compose 只挂了 `app-data:/app/backend/data`。
+  /app/backend/data 里放的是启动时加载的 班级.csv / 专业.csv 字典（core/enums.py 读取），
+  不是业务数据；真挂上去还会把字典遮住。
+  净效果：容器一删，考勤记录和向量库全丢 —— 与注释宣称的"持久化"相反。
+
+修复：新增 app-state:/app/backend/state，并用环境变量把两个库指过去。
+“不改 Python 代码也能生效”这件事已实测（pydantic-settings 字段名同名环境变量覆盖）：
+
+$ SQLITE_URL=... MILVUS_DB_PATH=... python -c "from core.config import settings; print(...)"
+> SQLITE_URL      = sqlite:////tmp/state_test/attendance.db
+> MILVUS_DB_PATH  = C:/Users/.../Temp/state_test/milvus_lite.db
+  （注：上面这条是 Git Bash 在 Windows 上把 /tmp 自动转成了本机临时目录，
+    属于宿主 PATH 转换，不代表容器内行为；容器内 Linux 路径不会被改写。）
+> 默认值对照组同上第 2 段。
+
+────────────────────────────────────────────────────────
+4) 其它可通过静态手段确认的项
+────────────────────────────────────────────────────────
+$ sh -n docker/entrypoint.sh   → 语法通过
+$ python -c "import yaml; yaml.safe_load(open('docker-compose.yml'))"
+> image: face-attendance-api:latest
+> volumes:
+>     insightface-models:/root/.insightface
+>     app-state:/app/backend/state
+>     ./backend/uploads:/app/backend/uploads
+> environment:
+>     PYTHONUNBUFFERED = 1
+>     PYTHONPATH = /app/backend
+>     SQLITE_URL = sqlite:////app/backend/state/attendance.db
+>     MILVUS_DB_PATH = /app/backend/state/milvus_lite.db
+> ports: ['8000:8000']
+
+引用完整性：
+  COPY backend/requirements.txt                 → 存在
+  COPY backend ./backend                        → 存在
+  COPY docker/entrypoint.sh                     → 存在
+  entrypoint 调用的 scripts/download_model.py   → 存在
+  HEALTHCHECK 打 /api/health                    → 存在（api/system.py: @router.get("/health")，
+                                                  router 前缀 /api，健康检查 URL 对得上）
+  CMD python -m uvicorn main:app                → main.py:58 有 app = FastAPI(...)
+  uvicorn[standard]==0.30.6 在 requirements.txt → 存在
+  entrypoint.sh 行尾                            → 纯 LF，无 BOM（否则容器内会 bad interpreter）
+
+────────────────────────────────────────────────────────
+5) 仍然无法验证的部分（必须如实标注）
+────────────────────────────────────────────────────────
+- insightface==1.0.1 在 python:3.11-slim 上的源码编译是否真的能过
+  （已在 Dockerfile 里补 `pip install --upgrade pip setuptools wheel` 作为保险）
+- opencv-python / onnxruntime 的运行时 GL、OpenMP 依赖是否齐全
+- entrypoint 首次下载 buffalo_l 的镜像源是否可达
+- 容器内 SQLite WAL 在命名卷上的实际表现
+⇒ 这些必须真机 docker build + docker run 之后才能判定，不能靠推理宣称通过。
