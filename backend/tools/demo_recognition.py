@@ -101,7 +101,12 @@ def main():
     print(f"  相似度 top1={rec.get('similarity')}  top2={rec.get('top2_similarity')}  "
           f"margin={rec.get('margin')}  ambiguous={rec.get('ambiguous')}")
     assert d["recognized"] and d["decision"] != "unrecognized", "alpha 探针应被识别！"
-    print("  ✓ 阈值 >= 0.50 命中 → decision='recognized'")
+    # 阈值来自实测标定（backend/scripts/checkin_threshold_sweep.py，
+    # 报告见 docs/checkin-threshold-sweep.md），此处按符号引用，避免文案与实际阈值脱节
+    assert rec.get("similarity") is not None and rec["similarity"] >= attendance_service.CHECKIN_THRESHOLD, \
+        f"相似度 {rec.get('similarity')} 应 >= 阈值 {attendance_service.CHECKIN_THRESHOLD}"
+    print(f"  ✓ 相似度 {rec.get('similarity')} >= 阈值 {attendance_service.CHECKIN_THRESHOLD} "
+          f"→ decision='recognized'")
 
     banner("[2b] 关键回归：同一人多底片时，识别余量仍要算得出来")
     print("  alpha 录了 6 张底片 —— 若按旧实现（取回 top3 再在窗口里找异人），")

@@ -45,6 +45,8 @@ FastAPI + Vue 3 全栈实现，覆盖**六大模块**：
 2. **阈值是实测标定的，不是抄来的**：网上资料常见的 0.8 阈值对已归一化的 ArcFace 向量**永远查不出问题**；
    本项目拉了真实的相似度矩阵，测出「同人 0.43~0.98 / 异人 -0.09~0.21」，
    再经网格扫描与独立验证集复核，最终部署 **cross_student=0.40 / cluster_distance=0.60**（详见第六节）。
+   签到的 `CHECKIN_THRESHOLD`（1:N 认人命中线）与 `MARGIN_WARN`（识别余量告警线）同样做了网格标定，
+   实测部署 **0.56 / 0.27**（详见七·补四）。
    画质门控 7 条规则的阈值同样来自实测（详见第五·补二）。
 3. **画质门控把脏数据挡在入口**：录进去一张糊图/侧脸/过曝照，后续识别天天失败且无法回溯原因。
    本项目在检测与入库之间加了 7 条规则的质量门控（尺寸/多人/置信度/侧倾/姿态/亮度/清晰度），
@@ -171,6 +173,7 @@ face-attendance/
 │       ├── e2e_test.py         端到端联调（68 项断言）
 │       ├── calibrate_quality.py ★ 画质门控阈值标定（12 真实样本 + 8 类退化，可复现）
 │       ├── audit_recall_test.py 脸库审计召回率评测（独立评测库，不动演示数据）
+│       ├── checkin_threshold_sweep.py ★ 签到识别阈值标定（8 身份 17 真脸 + 1656 档网格，可复现）
 │       ├── daily_run_stats.py  每日真实运行取数 + SQLite/Milvus 条数一致性校验
 │       ├── capture_ui.py       批量截图 README 用界面图
 │       └── pii_guard.py        ★ 演示数据 PII 守卫（截图前必跑，防手机号进截图）
@@ -746,17 +749,41 @@ top3 窗口会被**本人底片占满**，"另一个人"根本不在窗口内 �
 | 同一人录 6 张底片后签到 | `margin=None` | `margin=0.9541` |
 | 一人多号（同图注册两个学号） | `decision=recognized`（**未检出**） | `decision=ambiguous`，`margin=0.0` |
 
-测试：`backend/test/test_m5_recognition.py`（5 项）+ `backend/test/test_attendance_margin.py`（9 项），
-含 active 索引过滤、诊断字段落库、ambiguous 三态判定、以及"本人底片占满窗口时余量仍要算得出"
-的回归用例，全部 monkeypatch 掉模型与 Milvus，秒级跑完。
+测试：`backend/test/test_m5_recognition.py`（5 项）+ `backend/test/test_attendance_margin.py`（10 项），
+含 active 索引过滤、诊断字段落库、ambiguous 三态判定、"本人底片占满窗口时余量仍要算得出"
+的回归用例，以及"余量恰在告警线上/ 差一丁点"的边界两侧用例，全部 monkeypatch 掉模型与 Milvus，
+秒级跑完。
 
-`CHECKIN_THRESHOLD=0.50`（比审计 cross_student=0.40 更保守，因误接受会直接写一条出勤记录、
-代价高于查重漏报）与 `MARGIN_WARN=0.10` 维持不变；二者尚未像审计阈值那样做过网格标定，
-列为 README 已知事项待办。
+**④ 识别阈值与余量线的实测标定（M6）**
 
-测试：`backend/test/test_m5_recognition.py`（5 项）+ `backend/test/test_attendance_margin.py`（9 项），
-含 active 索引过滤、诊断字段落库、ambiguous 三态判定、以及"本人底片占满窗口时余量仍要算得出"
-的回归用例，全部 monkeypatch 掉模型与 Milvus，秒级跑完。
+`CHECKIN_THRESHOLD` 与 `MARGIN_WARN` 原先是拍脑袋定的 0.50 / 0.10。现按与审计阈值同一套范式
+做了网格标定（`backend/scripts/checkin_threshold_sweep.py`：8 个身份 / 17 张真实人脸，
+POSITIVE 11 次 + NEGATIVE 17 次 + AMBIGUOUS 4 次，36 × 46 = 1656 档扫描，全走真实推理与真实
+Milvus-Lite 检索，并做保真度校验以确保标定用的就是生产那批向量）：
+
+| 项 | 标定前 | 标定后 | 依据 |
+|---|---|---|---|
+| `CHECKIN_THRESHOLD` | 0.50 | **0.56** | 同人跨照片相似度下界 0.5878 **退一格**；异人相似度上限仅 0.2099 |
+| `MARGIN_WARN` | 0.10 | **0.27** | 歧义余量上界 0.0874 与正常余量下界 0.4596 的**间隙中点** |
+
+判据方向与审计标定**相反**，这是两件事最本质的差别：
+
+- 审计（脸库查重）：假报=把两人判为一人 / 漏报=放过重复账号 → 判据「召回=100% 且误报=0」。
+- 签到（1:N 认人）：**假接受=把 A 的脸认成 B，直接给 B 写一条错误出勤记录**（数据污染，事后需人工核查）；
+  假拒绝=认不出本人（本人重拍一次即可）→ 判据「**假拒绝=0** 为硬约束 + 假接受最小」。
+
+故阈值取「最弱真样本退一格网格」（上限是最弱样本的单点观测，直接取等于站在悬崖边），
+余量线取「到歧义侧间隔 × 到正常侧间隔」最大者（选中值距歧义侧 0.1826、距正常侧 0.1896，
+两侧几乎等距，说明落在两组分布的间隙中点而非网格上界）。
+
+⚠ **局限（须随结论一起引用，不得省略）**：留一法在阈值维度**未全通过**（1 / 2）——
+留出 alpha 后，剩余样本上限升到 pro003 的 0.7298，推出阈值 0.70，而 alpha 自己最弱的一张
+只有 0.5878，于是漏签。这不是代码缺陷，而是具备"同人跨照片"试验的身份太少（仅 alpha、pro003）。
+它揭示的事实是：**阈值高度依赖最弱的那一个样本**，在只有两个正样本身份时"阈值该定多少"无法稳定回答。
+因此 0.56 / 0.27 应视为**当前数据集上的最优解**而非最终定值，素材扩充后须重跑同一套判据。
+
+标定脚本、完整报告与原始数据：[`docs/checkin-threshold-sweep.md`](docs/checkin-threshold-sweep.md)、
+`docs/verify-log/checkin_threshold_sweep.json`。
 
 ---
 

@@ -57,6 +57,7 @@ def test_other_student_close_marks_ambiguous(monkeypatch):
     margin = svc._identify_margin(_emb(), _hit(7, 0.80, face_id=11))
     fields = svc._margin_fields(margin)
     assert fields["margin"] == 0.04
+    assert fields["margin"] < svc.MARGIN_WARN, "该用例的前提是余量低于告警线"
     assert fields["ambiguous"] is True
     assert "人工复核" in fields["warning"]
 
@@ -67,18 +68,38 @@ def test_other_student_far_is_clean(monkeypatch):
     margin = svc._identify_margin(_emb(), _hit(7, 0.88, face_id=11))
     fields = svc._margin_fields(margin)
     assert fields["margin"] == 0.57
+    assert fields["margin"] >= svc.MARGIN_WARN, "该用例的前提是余量高于告警线"
     assert fields["ambiguous"] is False
     assert "warning" not in fields
 
 
 def test_margin_boundary_is_inclusive(monkeypatch):
-    """恰好等于告警线：按 >= 判定，不算歧义。"""
+    """恰好等于告警线：按 >= 判定，不算歧义。
+
+    ★ 相似度按当前 MARGIN_WARN **动态构造**，不写死绝对值 ——
+      告警线来自实测标定（见 docs/checkin-threshold-sweep.md），
+      将来重新标定后数值会变，写死相似度会让本用例失效或误判。
+    """
     _patch_search(monkeypatch, {7: [_hit(7, 0.70, face_id=11)],
-                                9: [_hit(9, 0.60, face_id=20)]})
+                                9: [_hit(9, round(0.70 - svc.MARGIN_WARN, 4), face_id=20)]})
     margin = svc._identify_margin(_emb(), _hit(7, 0.70, face_id=11))
     fields = svc._margin_fields(margin)
     assert fields["margin"] == svc.MARGIN_WARN
     assert fields["ambiguous"] is False
+
+
+def test_margin_just_below_warn_is_ambiguous(monkeypatch):
+    """余量比告警线小一丁点：必须判为歧义（边界另一侧）。
+
+    与上一条成对使用，锁住边界两侧的行为。
+    """
+    _patch_search(monkeypatch, {7: [_hit(7, 0.70, face_id=11)],
+                                9: [_hit(9, round(0.70 - svc.MARGIN_WARN + 0.01, 4), face_id=20)]})
+    margin = svc._identify_margin(_emb(), _hit(7, 0.70, face_id=11))
+    fields = svc._margin_fields(margin)
+    assert fields["margin"] < svc.MARGIN_WARN
+    assert fields["ambiguous"] is True
+    assert "人工复核" in fields["warning"]
 
 
 def test_margin_found_even_when_own_faces_fill_window(monkeypatch):
@@ -95,6 +116,7 @@ def test_margin_found_even_when_own_faces_fill_window(monkeypatch):
 
     margin = svc._identify_margin(_emb(), _hit(7, 1.00, face_id=11))
     assert margin == 0.07, margin
+    assert margin < svc.MARGIN_WARN, "该用例的前提是余量低于告警线"
     assert svc._margin_fields(margin)["ambiguous"] is True
     # 确认走的是「排除 top1 学号」的检索，而不是普通 top_k 检索
     assert calls and calls[-1]["exclude_student_id"] == 7
