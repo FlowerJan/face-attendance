@@ -174,6 +174,9 @@ face-attendance/
 │       ├── calibrate_quality.py ★ 画质门控阈值标定（12 真实样本 + 8 类退化，可复现）
 │       ├── audit_recall_test.py 脸库审计召回率评测（独立评测库，不动演示数据）
 │       ├── checkin_threshold_sweep.py ★ 签到识别阈值标定（8 身份 17 真脸 + 1656 档网格，可复现）
+│       ├── run_all_m0_m6.py  ★ M0→M6 全链路一键跑批（命令行版，含失败中断）
+│       ├── make_ui_materials.py 生成 UI 跑批素材（真人脸，不入库，现场生成）
+│       ├── verify_ui_materials.py 核对素材在真实检索下的实际行为（隔离库）
 │       ├── daily_run_stats.py  每日真实运行取数 + SQLite/Milvus 条数一致性校验
 │       ├── capture_ui.py       批量截图 README 用界面图
 │       └── pii_guard.py        ★ 演示数据 PII 守卫（截图前必跑，防手机号进截图）
@@ -503,6 +506,13 @@ REM 一人多号：故意把同一身份拆到不同学号（制造脏数据）
 ```bat
 cd backend
 
+REM M0→M6 全链路一键跑批（不需要浏览器；任一阶段失败即中断）
+.venv\Scripts\python.exe scripts\run_all_m0_m6.py
+
+REM 只跑某几个阶段（逗号分隔）；--dry-run 先看编排不执行
+.venv\Scripts\python.exe scripts\run_all_m0_m6.py M0,M1,M4
+.venv\Scripts\python.exe scripts\run_all_m0_m6.py --dry-run
+
 REM 端到端联调（需后端已启动）：68 项断言，覆盖全部接口与签到闭环
 .venv\Scripts\python.exe scripts\e2e_test.py
 
@@ -535,6 +545,12 @@ REM 同上，并把结果自动追加进「每日清单.md」（同一天只保�
 
 `scripts/sample_faces/` 内的样本由 `prepare_samples.py` 从 insightface 自带测试图
 与本机已有图片裁切而来，**不依赖网络、不产生额外费用**。
+
+> `run_all_m0_m6.py` 需要独占 `8000` 端口（Milvus Lite 是单进程文件锁）。
+> 它**只会停掉确认是本项目后端**的进程 —— 通过 `/api/system/status` 返回体里的
+> 应用标识认领端口；若 8000 上跑的是你自己的其它服务，脚本会**报错退出而不是杀进程**。
+> 需要在浏览器里点一遍的，看 [`docs/M0-M6-UI跑批指南.md`](docs/M0-M6-UI跑批指南.md)：
+> 六个界面逐个点，每步写了点哪里、预期看到什么、配哪张素材。
 
 ### 画质门控的阈值是怎么定出来的
 

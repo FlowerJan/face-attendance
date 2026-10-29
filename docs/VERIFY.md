@@ -35,6 +35,8 @@
 | 业务接口压测（读为主） | 50 并发 P95 119 ms / 304 QPS / 零错误 | `cd backend && .venv\Scripts\python.exe scripts\bench_api.py --concurrency 50` | `backend/scripts/bench_result.json` |
 | SQLite 并发写（出厂默认） | 50 并发 P95 ≈ 2.2 s / ≈ 190 TPS | `cd backend && .venv\Scripts\python.exe scripts\bench_sqlite_write.py` | `docs/verify-log/bench_sqlite_write.json` |
 | SQLite 并发写（开 WAL 后） | 50 并发 P95 ≈ 0.28 s / ≈ 420 TPS | 同上（脚本内自带 A/B 对照） | 同上 |
+| M0→M6 全链路 | 7 个阶段全通过 | `cd backend && .venv\Scripts\python.exe scripts\run_all_m0_m6.py` | 终端汇总（任一阶段失败即中断） |
+| UI 跑批素材行为 | 本人原图 1.0000 / 同人新照片 0.9786 / 陌生人 -0.0039~0.2394 | `cd backend && .venv\Scripts\python.exe scripts\verify_ui_materials.py` | 终端表格（跑在临时隔离库） |
 
 ### 性能类数字的限定语（写简历前必读）
 

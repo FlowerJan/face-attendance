@@ -19,6 +19,12 @@ backend/attendance.db-shm
 backend/milvus_lite.db/
 backend/milvus_data/
 backend/uploads/faces/
+
+# ===== UI 跑批素材（docs/ui-run-materials/）=====
+# 这批是**真实人脸**（本人 6 张 + 办公室远景里裁出的 8 个不同的人）。
+# 本仓库是公开仓库，且此前已因截图泄露真实 PII 踩过坑 —— 不把新的真人脸提交进去。
+# 需要时用 `backend/scripts/make_ui_materials.py` 在本机现场生成（可复现，不联网）。
+docs/ui-run-materials/
 backend/storage/faces/
 
 # ===== 模型权重（buffalo_l 约 600MB，可用 scripts/download_model.py 重建） =====
