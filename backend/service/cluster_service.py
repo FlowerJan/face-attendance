@@ -27,7 +27,10 @@ from repository import face_repo
 # 因此判定边界取 0.4~0.5，而不是常见的 0.8+（那是未归一化向量或别的模型才成立）。
 # 可用 GET /api/audit/similarity-matrix 看自己数据的真实分布再微调。
 SAME_STUDENT_THRESHOLD = 0.40    # 同一学号内，相似度低于此值 => 判为脏数据
-CROSS_STUDENT_THRESHOLD = 0.50   # 不同学号间，相似度高于此值 => 判为重复注册
+# 跨学号判重阈值。论文 5.5 节以验证集双指标复核确定的部署值（15/15 命中、正常库零误报），
+# 覆盖原工程默认值 0.50（该值仅命中 14/15）。与 same_student=0.40 数值相同但语义不同：
+# 本项管"跨学号判重"，same_student 管"同一学号内脏数据"，二者独立。
+CROSS_STUDENT_THRESHOLD = 0.40
 CLUSTER_DISTANCE_THRESHOLD = 0.60  # 余弦距离阈值(1-相似度)，约等于相似度 0.40 聚成一簇
 
 
