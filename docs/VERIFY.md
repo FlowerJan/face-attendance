@@ -24,8 +24,8 @@
 
 | 数字 | 实测值 | 核验命令 | 原始输出 |
 |---|---|---|---|
-| 端到端断言 | **68 项通过，0 失败** | 先起后端，再 `cd backend && .venv\Scripts\python.exe scripts\e2e_test.py` | [`verify-log/e2e_2026-10-26.txt`](verify-log/e2e_2026-10-26.txt) |
-| 单元测试 | **34 passed** | `cd backend && .venv\Scripts\python.exe -m pytest test/ -q` | [`verify-log/pytest_2026-10-26.txt`](verify-log/pytest_2026-10-26.txt) |
+| 端到端断言 | **68 项通过，0 失败** | 先起后端，再 `cd backend && .venv\Scripts\python.exe scripts\e2e_test.py` | [`verify-log/e2e_2026-10-30.txt`](verify-log/e2e_2026-10-30.txt) |
+| 单元测试 | **34 passed** | `cd backend && .venv\Scripts\python.exe -m pytest test/ -q` | [`verify-log/pytest_2026-10-30.txt`](verify-log/pytest_2026-10-30.txt) |
 | 自动化合计 | **102 项**（34 + 68） | 上两行相加 | — |
 | REST 接口 | 25 个 + 1 WebSocket | `grep -c "@router\.\(get\|post\|put\|delete\|patch\)" backend/api/*.py` | — |
 | 审计阈值 | cross_student 0.40 / cluster_distance 0.60 | `backend/service/cluster_service.py` | — |
@@ -74,8 +74,43 @@
 
 - **"N 项单元测试"一律指 pytest 用例数**，即 `pytest test/ -q` 输出的 `N passed`。
 - `test_quality_gate.py` 内部有 19 条 `assert`，但它只是 **1 个用例**。
-  **"19 项断言"与"25 项单元测试"不是同一口径，不能相加。**
+  **"19 项断言"与"34 项单元测试"不是同一口径，不能相加。**
 - 端到端按运行时 `[PASS]` 计数，不要按源码里 `check(` 的出现次数数（70 ≠ 68）。
+
+---
+
+## 论文里的数字（同一套口径，逐处可核）
+
+论文正文在 `论文选题/毕业论文-人脸签到系统-质量门控与查重审计.md`（**不在本仓库内**，
+改动论文时须同步核对本表）。下表列出论文中出现的全部关键数字及其在本仓库的出处：
+
+| 论文位置 | 论文中的数字 | 仓库出处 / 核验方式 |
+|---|---|---|
+| 1.3、7.4.2、7.6、8.1 | 25 个 REST 接口 + 1 个 WebSocket | `backend/api/*.py` 的 `@router.*` 计数 |
+| 1.3、7.4.2、7.6、8.1 | 102 项自动化检查（单测 34 + 端到端 68） | 本表"自动化合计"行 |
+| 3.3、表 3-2、表 3-3 | 门控阈值 85/105px、0.30、0.50、35°、0.25、25.0 | `backend/service/quality_service.py`、`backend/scripts/calibrate_quality.py` |
+| 5.1~5.5 | 84 档网格、47 档一级解集、最终 0.40/0.60 | `backend/scripts/audit_threshold_sweep.py`、`audit_validation_sweep.py` |
+| 5.5、8.1 | 脏库 15/15 命中、正常库 0 误报 | `backend/scripts/audit_baseline_compare.py`（本表上方两行） |
+| 6.2~6.5 | 8 身份 17 张人脸、11/17/4 试验、1656 档、0.56 / 0.27 | `backend/scripts/checkin_threshold_sweep.py`、`docs/checkin-threshold-sweep.md` |
+| 6.5 | 阈值维度留一法 1/2 未通过、余量维度 2/2 通过 | 同上（论文已如实报告该负面结果） |
+| 7.4.1、表 7-6 | 10 项功能用例 | `backend/scripts/e2e_test.py` 对应用例 |
+
+**改论文里的任何数字之前，先照本表核一遍；改完论文，把本表一并更新。**
+
+### 论文与代码的阈值口径（已统一，勿再改动）
+
+论文标定结论为 **cross_student = 0.40**，`backend/service/cluster_service.py` 中
+`CROSS_STUDENT_THRESHOLD` **已于 2026-10-30 同步为 0.40**（`CLUSTER_DISTANCE_THRESHOLD = 0.60` 与论文一致）。
+即：**标定结论已落到代码实现中**，二者不再有偏差。
+
+- 改动依据：论文 5.5 节以验证集双指标复核确定部署值 0.40/0.60（脏库 15/15 命中、正常库零误报）；
+  原工程默认值 0.50/0.60 仅命中 14/15，论文已论证其不采用。
+- 语义区分：`cross_student` 管「跨学号判重」，`same_student` 管「同一学号内脏数据」，
+  两者数值同为 0.40 但语义不同，**不要合并或顺手调整**。
+- 改动后回归：`pytest 34 passed`（`verify-log/pytest_2026-10-30.txt`）、
+  `e2e 68/68`（`verify-log/e2e_2026-10-30.txt`），无断言回归。
+- 论文中「代码默认值 0.50/0.60」的表述已统一改为「**原工程默认值（标定前）**」——
+  该数值仍作为对照出现在表 5-6/5-7/5-8 中，属历史复现记录，**不要删改这些对照数字**。
 
 ---
 

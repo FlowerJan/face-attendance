@@ -1,0 +1,22 @@
+..................................                                       [100%]
+============================== warnings summary ===============================
+test/test_student_repo.py::test_full_query
+  E:\workbuddy-projects\face-attendance\backend\.venv\Lib\site-packages\_pytest\python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but test/test_student_repo.py::test_full_query returned <class 'list'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test/test_student_repo.py::test_pagination
+  E:\workbuddy-projects\face-attendance\backend\.venv\Lib\site-packages\_pytest\python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but test/test_student_repo.py::test_pagination returned <class 'list'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test/test_student_repo.py::test_keyword_search
+  E:\workbuddy-projects\face-attendance\backend\.venv\Lib\site-packages\_pytest\python.py:171: PytestReturnNotNoneWarning: Test functions should return None, but test/test_student_repo.py::test_keyword_search returned <class 'list'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+34 passed, 3 warnings in 3.27s

@@ -1,0 +1,98 @@
+==================================================================
+学生刷脸考勤系统 · 第一阶段 端到端联调
+==================================================================
+
+[1] 健康检查 / 系统状态 / 枚举
+  [PASS] GET /api/health
+      系统状态: {"app": "学生刷脸考勤系统 · 第一阶段", "vector_backend": "milvus-lite", "vector_count": 12, "face_engine": {"model": "buffalo_l", "loaded": true, "providers": ["CPUExecutionProvider"]}, "face_model_dir": "C:\\Users\\Administrator\\.insightface\\models\\buffalo_l", "face_model_installed": true, "ws_online": 0}
+  [PASS] GET /api/system/status
+  [PASS] GET /api/enums 有班级/专业 -- classes=4, majors=4
+
+[2] 学生 CRUD
+  [PASS] POST /api/students
+  [PASS] 学号唯一性校验 -- student_no E2E31108 already exists
+  [PASS] 班级枚举校验 -- {"code":422,"message":"class_name: Value error, invalid clas
+  [PASS] GET /api/students 搜索
+  [PASS] PUT /api/students/{id}
+
+[3] 人脸录入（含无脸拒收）
+  [PASS] 人脸检测生效（合成图被拒收，属预期） -- no face detected
+  [PASS] 无脸图片被拒收 -- no face detected
+  [PASS] GET 脸照列表
+
+[4] 汇总统计
+  [PASS] GET /api/stats/summary -- 总人数=29
+  [PASS] GET /api/stats/face-coverage -- 覆盖率=0.2414
+  [PASS] GET /api/stats/face-count -- {"zero_face": 22, "one_face": 6, "multiple_faces": 1, "orphan_faces": 0, "total_faces": 12}
+
+[5] 脸库审计（ML 聚类）
+  [PASS] GET /api/audit/duplicates -- backend=milvus-lite 向量=12 重复对=0 脏数据对=0 集群=7
+
+[6] 公告 + WebSocket
+  [PASS] WebSocket 心跳 pong -- {"type":"pong"}
+  [PASS] 发布公告(HTTP)
+  [PASS] WS 收到实时推送 -- {"type": "notice", "data": {"id": 5, "title": "联调公告 380", "content": "WebSocket 推送验证", "publisher": "e2e", "created_at":
+  [PASS] GET /api/notices -- 共 5 条
+
+[7] 级联删除
+  [PASS] DELETE /api/students/{id} -- 清理向量 0 条, 文件 0 个
+  [PASS] 删除后查询返回不存在 -- student not found
+
+[8] 真实人脸入库 + 聚类审计
+      样本数: 12 -> alpha__1.jpg, alpha__2.jpg, alpha__3.jpg, alpha__4.jpg, alpha__5.jpg, alpha__6.jpg, bravo__1.jpg, charlie__1.jpg, delta__1.jpg, echo__1.jpg, foxtrot__1.jpg, golf__1.jpg
+  [PASS] 录入 alpha__1.jpg 检测到人脸
+  [PASS] 录入 alpha__2.jpg 检测到人脸
+  [PASS] 录入 alpha__3.jpg 检测到人脸
+  [PASS] 录入 alpha__4.jpg 检测到人脸
+  [PASS] 录入 alpha__5.jpg 检测到人脸
+  [PASS] 录入 alpha__6.jpg 检测到人脸
+  [PASS] 录入 bravo__1.jpg 检测到人脸
+  [PASS] 录入 charlie__1.jpg 检测到人脸
+  [PASS] 录入 delta__1.jpg 检测到人脸
+  [PASS] 录入 echo__1.jpg 检测到人脸
+  [PASS] 录入 foxtrot__1.jpg 检测到人脸
+  [PASS] 录入 golf__1.jpg 检测到人脸
+  [PASS] 脸照静态URL可访问且为JPEG -- /uploads/faces/RF840121/1793323747309.jpg -> HTTP 200, 40988B
+  [PASS] 录入后 face_status 置为已录入 -- face_status=1
+  [PASS] 混录两名不同人（用于脏数据检测） -- alpha__1.jpg + bravo__1.jpg -> 同一学号
+  [PASS] 真实人脸至少检出 1 张 -- 12/12
+  [PASS] 真实人脸全部通过质量门控并入库 -- 入库 12/12
+  [PASS] 真实向量已写入向量库 -- vector_count=26, 入库=12
+      审计: {"backend": "milvus-lite", "face_count": 26, "cluster_count": 7, "duplicate_pairs": 71, "dirty_pairs": 1, "suspicious_clusters": 7}
+  [PASS] 聚类生效（cluster_count >= 1） -- clusters=7
+  [PASS] 审计返回 face_count 与实际向量数一致 -- 26 vs 26
+  [PASS] 同一人多学号 -> 检出重复注册 -- duplicate_pairs=71
+  [PASS] 同一学号混入他人 -> 检出脏数据 -- dirty_pairs=1
+  [PASS] 检出跨学生可疑簇 -- suspicious_clusters=7
+  [PASS] 审计结构完整（backend/summary/clusters） -- backend=milvus-lite
+  [PASS] 级联删除返回清理数量 -- {"deleted_faces": 2, "deleted_vectors": 2, "deleted_files": ["/uploads/faces/MX981353/1793323771992.jpg", "/up
+  [PASS] 清理后向量回到基线 -- 剩余 vector_count=12 (基线 12)
+  [PASS] 无孤儿脸照（SQLite 外键级联生效） -- orphan_faces=0
+  [PASS] 统计不出现负数 -- zero_face=21
+  [PASS] face-count.total_faces 与向量库条数一致（条数口径，非人数） -- total_faces=12 vs vector_count=12
+  [PASS] total_faces 不等于有脸学生人数（防止再次把人数当条数） -- total_faces=12 vs one+multiple=7
+
+[9] 质量门控（坏图拒收 + 不落库）
+  [PASS] POST /api/faces/preview 模糊图被拒 -- 画面模糊（清晰度 5），请稳住摄像头或擦净镜头
+  [PASS] 预检返回了触发规则 -- G7
+  [PASS] 预检不落库（脸照数未变） -- faces=0
+  [PASS] 模糊图录入被门控拒绝 -- 画面模糊（清晰度 5），请稳住摄像头或擦净镜头
+  [PASS] 被拒的脏图未写入数据库 -- faces=0
+  [PASS] 过暗图被拒 -- 光照不足（亮度 18，下限 55），请开灯或靠近光源
+  [PASS] 过暗提示指向光照（G6）而非模糊（G7） -- rule=G6 reason=光照不足（亮度 18，下限 55），请开灯或靠近光源
+  [PASS] 正常图通过门控并入库
+  [PASS] 入库后脸照数为 1（只有合格那张） -- faces=1
+
+[10] 人脸签到闭环
+  [PASS] 签到识别成功并写入记录 -- {"recognized": true, "duplicate": true, "reason": null}
+  [PASS] 重复签到幂等（返回同一条记录 id） -- {"recognized": true, "duplicate": true}
+  [PASS] GET /api/attendance/records 含签到返回的学生 -- total=1 matched=20240001
+  [PASS] GET /api/attendance/summary 已签人数 >= 1 -- {"date": "2026-10-30", "checked_count": 1, "total_students": 29, "rate": 0.0345}
+  [PASS] 无脸图签到被拒（recognized=False 且无副作用） -- {"recognized": false, "reason": "no face detected"}
+  [PASS] 非图片类型被 415 拒绝 -- code=415
+  [PASS] 超过 5MB 被 413 拒绝 -- code=413
+  [PASS] 删除学生后签到记录级联清理 -- 剩余记录=1
+
+==================================================================
+结果：通过 68 项，失败 0 项
+==================================================================

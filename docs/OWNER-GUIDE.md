@@ -374,7 +374,7 @@ api (路由)  →  service (业务)  →  repository (数据)  →  db (引擎)
 | 脚本 | 干什么 | 怎么用 |
 |---|---|---|
 | `scripts/doctor.py` | **体检**：身份/同步/敏感信息/绿点 | `python scripts/doctor.py` |
-| `backend/scripts/e2e_test.py` | 端到端 60 项断言 | `cd backend; .venv\Scripts\python.exe scripts/e2e_test.py` |
+| `backend/scripts/e2e_test.py` | 端到端 68 项断言 | `cd backend; .venv\Scripts\python.exe scripts/e2e_test.py` |
 | `backend/scripts/calibrate_quality.py` | 重新标定门控阈值 | `cd backend; .venv\Scripts\python.exe scripts/calibrate_quality.py` |
 | `backend/scripts/seed_demo.py` | 重建演示数据库 | `cd backend; .venv\Scripts\python.exe scripts/seed_demo.py` |
 | `backend/scripts/pii_guard.py` | 截图前查库，防止真实手机号出图 | `cd backend; .venv\Scripts\python.exe scripts/pii_guard.py` |
@@ -412,7 +412,7 @@ cd E:\workbuddy-projects\face-attendance\backend
 .venv\Scripts\python.exe scripts/e2e_test.py
 ```
 
-期望：`60/60 通过`
+期望：`68/68 通过`
 
 > 端到端需要后端能起（脚本自己会起服务）。
 > 需要 insightface 模型在 `backend/models/` 下；没有就跑 `download_model.py`（600MB）。
@@ -442,8 +442,8 @@ scripts\start-frontend.cmd     # 另一个窗口
 ### 4.5 改了阈值/核心逻辑后的检查清单
 
 ```
-[ ] pytest 19 项全过
-[ ] e2e 60 项全过
+[ ] pytest 34 项全过
+[ ] e2e 68 项全过
 [ ] 门控标定脚本输出仍是「0 误伤 + 100% 拦截」
 [ ] README 里的数字和代码一致
 [ ] 没有新的真实邮箱/手机号进仓库
