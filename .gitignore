@@ -71,3 +71,6 @@ Thumbs.db
 
 # 工具工作区数据（agent 记忆等，本地私有）
 .workbuddy/
+
+# 人脸样本图不入库（隐私）：本地自备，脚本缺目录会自动跳过
+backend/scripts/sample_faces/
