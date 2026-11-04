@@ -27,7 +27,7 @@
 | 端到端断言 | **68 项通过，0 失败** | 先起后端，再 `cd backend && .venv\Scripts\python.exe scripts\e2e_test.py` | [`verify-log/e2e_2026-10-30.txt`](verify-log/e2e_2026-10-30.txt) |
 | 单元测试 | **34 passed** | `cd backend && .venv\Scripts\python.exe -m pytest test/ -q` | [`verify-log/pytest_2026-10-30.txt`](verify-log/pytest_2026-10-30.txt) |
 | 自动化合计 | **102 项**（34 + 68） | 上两行相加 | — |
-| REST 接口 | 25 个 + 1 WebSocket | `grep -c "@router\.\(get\|post\|put\|delete\|patch\)" backend/api/*.py` | — |
+| REST 接口 | 26 个 + 1 WebSocket | `grep -cE "@[a-z_]*router\.(get|post|put|delete|patch)" backend/api/*.py`（含 `@enum_router`，勿漏 `GET /api/enums`） | — |
 | 审计阈值 | cross_student 0.40 / cluster_distance 0.60 | `backend/service/cluster_service.py` | — |
 | 签到阈值 | CHECKIN_THRESHOLD 0.56 / MARGIN_WARN 0.27 | `backend/service/attendance_service.py` | [`checkin-threshold-sweep.md`](checkin-threshold-sweep.md) |
 | 脏库审计召回 | 15/15（阈值 0.40）；默认阈值 0.80 时仅 1/15 | `scripts\audit_baseline_compare.py --scenario dirty` | `docs/verify-log/audit_baseline_dirty.json` |
@@ -86,7 +86,7 @@
 
 | 论文位置 | 论文中的数字 | 仓库出处 / 核验方式 |
 |---|---|---|
-| 1.3、7.4.2、7.6、8.1 | 25 个 REST 接口 + 1 个 WebSocket | `backend/api/*.py` 的 `@router.*` 计数 |
+| 1.3、7.4.2、7.6、8.1 | 26 个 REST 接口 + 1 个 WebSocket | `backend/api/*.py` 的 `@[a-z_]*router.*` 计数（含 `@enum_router`） |
 | 1.3、7.4.2、7.6、8.1 | 102 项自动化检查（单测 34 + 端到端 68） | 本表"自动化合计"行 |
 | 3.3、表 3-2、表 3-3 | 门控阈值 85/105px、0.30、0.50、35°、0.25、25.0 | `backend/service/quality_service.py`、`backend/scripts/calibrate_quality.py` |
 | 5.1~5.5 | 84 档网格、47 档一级解集、最终 0.40/0.60 | `backend/scripts/audit_threshold_sweep.py`、`audit_validation_sweep.py` |
